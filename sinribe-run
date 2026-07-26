@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Sinribe launcher. (Named sinribe-run because ./sinribe is the Python package directory;
+# install.sh symlinks ~/.local/bin/sinribe here so the command on PATH is just `sinribe`.)
+#
+# The LD_LIBRARY_PATH line is mandatory, not cosmetic: ctranslate2 does not auto-discover the
+# pip-installed CUDA wheels, so without it the whisper model constructs fine and then throws
+# "Library libcublas.so.12 is not found" on the first encode. Same shim as local-wisprflow/wf-run.
+#
+# The diarization worker deliberately runs with LD_LIBRARY_PATH stripped (see
+# sinribe/pipeline.py:_diar_env) because its torch build is CUDA 13 and the cuDNN 12 and cuDNN 13
+# wheels share the SONAME libcudnn.so.9 — an inherited path would load the wrong one.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+VENV="$HERE/.venv"
+
+if [[ ! -x "$VENV/bin/python" ]]; then
+  echo "Sinribe: no virtualenv at $VENV — run $HERE/install.sh first" >&2
+  exit 1
+fi
+
+SP="$VENV/lib/python3.12/site-packages"
+export LD_LIBRARY_PATH="$SP/nvidia/cublas/lib:$SP/nvidia/cudnn/lib:${LD_LIBRARY_PATH:-}"
+export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
+export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
+
+cd "$HERE"
+exec "$VENV/bin/python" -m sinribe "$@"
