@@ -1,0 +1,60 @@
+{
+  "sample_rate": 16000,
+  "duration": 43.18,
+  "spans": [
+    {
+      "start": 0.0,
+      "end": 4.481,
+      "speaker": "A",
+      "text": "Good morning everyone, and welcome to today's lecture on systems theory."
+    },
+    {
+      "start": 4.931,
+      "end": 8.623,
+      "speaker": "B",
+      "text": "Quick question before we start. Which script are we supposed to be using?"
+    },
+    {
+      "start": 9.073,
+      "end": 14.391,
+      "speaker": "A",
+      "text": "The one from last semester still applies. Nothing has changed there."
+    },
+    {
+      "start": 14.841,
+      "end": 18.841,
+      "speaker": "C",
+      "text": "(JFK archive clip)"
+    },
+    {
+      "start": 19.291,
+      "end": 22.46,
+      "speaker": "B",
+      "text": "That makes sense. I was worried we had to buy the new edition."
+    },
+    {
+      "start": 22.91,
+      "end": 28.147,
+      "speaker": "A",
+      "text": "No, please do not buy anything. Everything is on the course page already."
+    },
+    {
+      "start": 28.597,
+      "end": 34.597,
+      "speaker": "C",
+      "text": "(JFK archive clip)"
+    },
+    {
+      "start": 35.047,
+      "end": 38.518,
+      "speaker": "B",
+      "text": "Perfect, thank you. That answers my question completely."
+    },
+    {
+      "start": 38.968,
+      "end": 42.73,
+      "speaker": "A",
+      "text": "Let us begin with the definition of a closed feedback loop."
+    }
+  ]
+}
