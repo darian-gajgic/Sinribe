@@ -19,10 +19,11 @@ Built 2026-07-26 in one session. Target box: Acer Predator Helios Neo 16, **RTX 
 | GUI end-to-end incl. speaker rename + re-export | ✅ |
 | YouTube link → download → transcript | ✅ (CC-BY talk; also a wordless film as the empty case) |
 | LLM chapters + summary via local Ollama | ✅ `gemma3:4b` on `:11435` |
-| Tests / lint | ✅ 88 pytest, ruff clean |
+| Tests / lint | ✅ 119 pytest, ruff clean |
+| **German 34 min phone interview end-to-end** | ✅ 2026-07-26, 21.5× realtime |
+| Voice-print speaker refinement | ✅ cut question+answer blocks from 28 to 11 on that file |
 | **A real multi-hour podcast *download*** | ❌ longest real fetch was ~10 min |
-| Non-English audio end-to-end | ❌ the German path is only exercised in unit tests |
-| `pyannote/speaker-diarization-3.1` pipeline | ❌ licence never accepted — selecting it 403s |
+| `pyannote/speaker-diarization-3.1` pipeline | ❌ licence never accepted, so never downloaded |
 
 ## The one constraint everything else follows from
 
@@ -88,6 +89,7 @@ sinribe/
   textfmt.py             EN/DE sentence splitting, timestamp formatting
   workers/asr_worker.py  faster-whisper subprocess   (.venv,      cu12)
   workers/diar_worker.py pyannote subprocess         (.venv-diar, cu13)
+  workers/refine_worker.py per-sentence voice-print check (.venv-diar, embedding model only)
   render/                markdown, subtitles, sidecar
   ui/                    PySide6 window, QThread wrappers, speaker panel
 ```
@@ -99,9 +101,32 @@ disk gets tight).
 
 ## Design notes worth knowing before changing anything
 
-- **Attribution is word-level, not segment-level.** Whisper segments straddle speaker changes, so
-  each *word* goes to the diarization turn it overlaps most; runs shorter than 3 words flanked by
-  the same speaker are absorbed (otherwise transcripts ping-pong on every "mhm"). `merge.py`.
+- **Attribution is sentence-level, decided from word timings.** Whisper *segments* straddle speaker
+  changes, so they cannot be the unit. Individual *words* are too small in the other direction: one
+  200 ms token against a boundary that is routinely 300 ms late tears a clause in half. So each
+  word is assigned by maximal overlap, then every **sentence** takes its duration-weighted majority
+  (`merge.vote_sentences`); runs shorter than 3 words flanked by the same speaker are still absorbed
+  (otherwise transcripts ping-pong on every "mhm"). `sentence_atomic: false` restores word-level.
+- **Diarization is a prior, not an oracle.** The `refine` stage (`workers/refine_worker.py`) builds
+  one voice print per speaker from the diarization's long *isolated* turns, embeds each sentence's
+  own audio, and overrules the label when the cosine gap to the runner-up clears `refine_margin`.
+  This is the only thing that repairs a span the diarizer labelled outright wrong — regrouping
+  cannot, because by then the wrong label is the only evidence left. Measured margins on real audio
+  are bimodal (confident corrections 0.3+, coin flips under 0.1), which is why 0.15 is safe; spans
+  under `refine_min_seconds` are never re-scored because a 0.3 s "Okay." has no voice in it.
+  Sentences the refiner places are locked against flicker smoothing.
+- The refine stage loads **only** the embedding half of the pipeline (~2 s, then 2.2 ms per crop —
+  5 s total on a 34 min file) and is non-fatal by construction: any failure logs and leaves the
+  plain diarization result in place. One speaker or no text and it exits before loading anything.
+- **`asr_mode: accurate`** decodes sequentially instead of batching. Batching splits at VAD
+  boundaries and decodes the pieces independently, which is where edge words vanish; sequential
+  raised word-span coverage from 0.75 to 0.79 and word count ~3% on the German interview, at
+  roughly half the speed (28× vs 63× realtime). It also sets `condition_on_previous_text=False` —
+  with conditioning on, two identical runs disagreed and occasionally emitted degenerate repeats
+  ("...mehr... ...mehr..."). Both modes are otherwise reproducible.
+- An `initial_prompt` full of German fillers was tried to push whisper toward verbatim output and
+  **made word accuracy worse** ("selbstverständlich" for "selbstständig"). Don't re-add it.
+  Whisper normalises disfluencies by design; no decode setting makes it a verbatim transcriber.
 - pyannote 4 returns a `DiarizeOutput`, not an `Annotation`. Use
   `.exclusive_speaker_diarization` — no overlapping turns, built for exactly this case.
 - The diarization worker enables TF32 (pyannote disables it on import, then prints a hint telling
@@ -121,7 +146,12 @@ disk gets tight).
 
 1. Run a **real** 2–4 h podcast link end-to-end — the download half at that scale is the only
    untested part. Transcription at 4 h is already proven.
-2. Run a German lecture; confirm the EN/DE sentence splitter and language auto-detect behave.
-3. If diarization quality disappoints on real recordings, the knobs are `speaker_mode`
-   (auto/exact/range) and `flicker_min_words` / `turn_gap_s` in the config — try pinning the
-   speaker count before touching the pipeline.
+2. If speaker attribution still disappoints, look at the refine stage's log line first — it prints
+   the **voice-print separation** (cosine between the speakers' prints). Around 0.2 means the
+   voices are easy to tell apart and any remaining error is a merge/threshold problem; approaching
+   0.6+ means they genuinely sound alike on this recording and no threshold will save it. After
+   that the knobs are `refine_margin`, `refine_min_seconds`, `speaker_mode` (pin the count),
+   `flicker_min_words` and `turn_gap_s`.
+3. Attribution quality is measured, not eyeballed: on an interview, count how many rendered turns
+   contain a '?' line followed by more text (question and answer collapsed into one block). It
+   went 28 → 18 with sentence-atomic voting → 11 with voice prints on the 34 min German file.

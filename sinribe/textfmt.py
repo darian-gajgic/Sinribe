@@ -22,6 +22,32 @@ _ABBREV = {
 # A run of sentence-ending punctuation, optional closing quote/bracket, then whitespace.
 _SENT_BOUNDARY = re.compile(r"[.!?…]+[\"')\]”’]*\s+(?=\S)")
 
+# Same punctuation run, anchored at the end of a single token.
+_SENT_END = re.compile(r"[.!?…]+[\"')\]”’]*$")
+
+
+def is_sentence_end(token: str, alone: bool = False) -> bool:
+    """True if `token` closes a sentence, applying format_sentences' abbreviation guards.
+
+    Exposed so that callers splitting a *word list* (merge.py, which needs sentence boundaries as
+    word indices rather than as string offsets) apply exactly the same rule as the renderer —
+    otherwise a sentence could be grouped one way for speaker attribution and printed another.
+
+    `alone` says the token would be the whole sentence, which is what distinguishes a standalone
+    list marker ("1.") from a clause that merely ends in a number ("I scored 8.").
+    """
+    token = (token or "").strip()
+    if not token or not _SENT_END.search(token):
+        return False
+    bare = _SENT_END.sub("", token).lower().rstrip(".")
+    if bare in _ABBREV:
+        return False
+    if len(bare) == 1 and bare.isalpha():   # initial, e.g. "J." in "J. R. R."
+        return False
+    if alone and bare.isdigit():            # standalone list marker
+        return False
+    return True
+
 
 def format_sentences(text: str) -> str:
     """Return `text` with each sentence on its own line.

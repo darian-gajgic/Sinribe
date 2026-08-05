@@ -13,7 +13,7 @@ from bisect import bisect_right
 from dataclasses import dataclass, field, asdict
 from typing import Iterable
 
-from .textfmt import format_sentences
+from .textfmt import format_sentences, is_sentence_end
 
 
 @dataclass
@@ -30,6 +30,13 @@ class DiarTurn:
     start: float
     end: float
     speaker: str  # raw label, e.g. "SPEAKER_00"
+
+
+@dataclass
+class SentenceScore:
+    """One sentence re-scored against the speakers' voice prints by the refine stage."""
+    speaker: str | None   # nearest centroid, or None if the span was too short to embed
+    margin: float         # cosine gap to the runner-up; 0 when undecidable
 
 
 @dataclass
@@ -124,16 +131,82 @@ def assign_words(
     return words
 
 
-def smooth_flicker(words: list[Word], min_run: int = 3) -> list[Word]:
+def sentence_spans(words: list[Word]) -> list[list[int]]:
+    """Group word indices into sentences using the renderer's own boundary rule.
+
+    Speaker attribution is decided per sentence rather than per word: a diarization boundary that
+    lands mid-sentence is almost always the diarizer being late or early, not two people splitting
+    a clause, and honouring it tears one utterance across two speaker blocks. Deciding whole
+    sentences makes each attribution rest on seconds of evidence instead of one 200 ms token.
+    """
+    spans: list[list[int]] = []
+    cur: list[int] = []
+    for i, w in enumerate(words):
+        cur.append(i)
+        if is_sentence_end(w.word, alone=len(cur) == 1):
+            spans.append(cur)
+            cur = []
+    if cur:
+        spans.append(cur)
+    return spans
+
+
+def vote_sentences(
+    words: list[Word],
+    spans: list[list[int]],
+    scores: list[SentenceScore] | None = None,
+    margin: float = 0.15,
+    min_seconds: float = 0.8,
+) -> set[int]:
+    """Collapse each sentence onto one speaker; return the indices of confidently-scored words.
+
+    The diarization overlap is the prior: every word in a sentence takes that sentence's
+    duration-weighted majority label, so a long word counts for more than "ja". Where the refine
+    stage compared the sentence's own audio against the speakers' voice prints and came back
+    decisive, its verdict wins instead — that is what repairs a span the diarizer labelled
+    outright wrong, which no amount of re-grouping can fix.
+
+    Returned indices are "locked": their speaker rests on acoustic evidence rather than on a
+    boundary guess, so flicker smoothing must not move them afterwards.
+    """
+    locked: set[int] = set()
+    for n, span in enumerate(spans):
+        if not span:
+            continue
+        weight: dict[str, float] = {}
+        for i in span:
+            w = words[i]
+            if w.speaker:
+                weight[w.speaker] = weight.get(w.speaker, 0.0) + max(w.end - w.start, 0.05)
+        winner = max(weight, key=lambda k: weight[k]) if weight else None
+
+        sc = scores[n] if scores and n < len(scores) else None
+        if (sc is not None and sc.speaker is not None and sc.margin >= margin
+                and (words[span[-1]].end - words[span[0]].start) >= min_seconds):
+            winner = sc.speaker
+            locked.update(span)
+        if winner is not None:
+            for i in span:
+                words[i].speaker = winner
+    return locked
+
+
+def smooth_flicker(words: list[Word], min_run: int = 3,
+                   protected: set[int] | None = None) -> list[Word]:
     """Absorb runs shorter than `min_run` words into the surrounding speaker.
 
     Diarization boundaries wobble around backchannels ("mhm", "ja", "right"), and without this
     the transcript ping-pongs between two people every few words, which is unreadable. Only runs
     flanked by the SAME speaker on both sides are absorbed — a genuine short reply between two
     different speakers is left alone.
+
+    A run holding any `protected` index is never absorbed: those words were placed by matching
+    their audio against the speakers' voice prints, which is stronger evidence than the
+    surrounding boundaries this heuristic exists to paper over.
     """
     if min_run <= 1 or len(words) < 3:
         return words
+    protected = protected or set()
 
     runs: list[list[int]] = []
     for i, w in enumerate(words):
@@ -148,6 +221,8 @@ def smooth_flicker(words: list[Word], min_run: int = 3) -> list[Word]:
         for r in range(1, len(runs) - 1):
             prev_sp = words[runs[r - 1][0]].speaker
             next_sp = words[runs[r + 1][0]].speaker
+            if any(i in protected for i in runs[r]):
+                continue
             if len(runs[r]) < min_run and prev_sp is not None and prev_sp == next_sp:
                 for i in runs[r]:
                     words[i].speaker = prev_sp
@@ -240,14 +315,22 @@ def merge(
     max_turn_chars: int = 1200,
     flicker_min_words: int = 3,
     orphan_window_s: float = 2.0,
+    sentence_atomic: bool = True,
+    sentence_scores: list[SentenceScore] | None = None,
+    refine_margin: float = 0.15,
+    refine_min_seconds: float = 0.8,
 ) -> tuple[list[Turn], dict[str, dict]]:
-    """Full pipeline: assign -> smooth -> group -> label -> stats."""
+    """Full pipeline: assign -> vote per sentence -> smooth -> group -> label -> stats."""
     words = [w for w in words if (w.word or "").strip()]
     if not words:
         return [], {}
     if diar_turns:
         assign_words(words, diar_turns, orphan_window_s=orphan_window_s)
-        smooth_flicker(words, min_run=flicker_min_words)
+        locked: set[int] = set()
+        if sentence_atomic:
+            locked = vote_sentences(words, sentence_spans(words), scores=sentence_scores,
+                                    margin=refine_margin, min_seconds=refine_min_seconds)
+        smooth_flicker(words, min_run=flicker_min_words, protected=locked)
     else:
         # No diarization result (single-speaker file, or the stage was skipped): keep the text.
         for w in words:

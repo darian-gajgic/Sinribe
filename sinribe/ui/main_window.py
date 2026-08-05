@@ -251,6 +251,25 @@ class MainWindow(QWidget):
             "speaker-diarization-3.1 requires accepting its licence on huggingface.co first.")
         g.addWidget(self.diar_cb, 2, 1, 1, 3)
 
+        accuracy = QHBoxLayout()
+        accuracy.setSpacing(22)
+        self.cb_accurate = QCheckBox("Accurate decoding")
+        self.cb_accurate.setChecked(str(self.cfg.get("asr_mode", "accurate")) == "accurate")
+        self.cb_accurate.setToolTip(
+            "Decode the audio in one pass instead of in parallel chunks.\n"
+            "Picks up words that chunking drops and gives tighter word timings,\n"
+            "which is what speaker attribution is built on. Roughly half the speed.")
+        self.cb_refine = QCheckBox("Voice-print speaker check")
+        self.cb_refine.setChecked(bool(self.cfg.get("refine_speakers", True)))
+        self.cb_refine.setToolTip(
+            "After transcribing, compare every sentence against each speaker's voice and\n"
+            "correct the diarizer where the match is decisive. Fixes short answers that get\n"
+            "absorbed into the previous question. Costs a few seconds.")
+        for w in (self.cb_accurate, self.cb_refine):
+            accuracy.addWidget(w)
+        accuracy.addStretch(1)
+        g.addLayout(accuracy, 3, 0, 1, 4)
+
         checks = QHBoxLayout()
         checks.setSpacing(22)
         self.cb_json = QCheckBox("Sidecar .json")
@@ -268,7 +287,7 @@ class MainWindow(QWidget):
         for w in (self.cb_json, self.cb_srt, self.cb_vtt, self.cb_llm):
             checks.addWidget(w)
         checks.addStretch(1)
-        g.addLayout(checks, 3, 0, 1, 4)
+        g.addLayout(checks, 4, 0, 1, 4)
         g.setColumnStretch(1, 1)
         g.setColumnStretch(3, 1)
 
@@ -480,6 +499,8 @@ class MainWindow(QWidget):
             "min_speakers": self.min_spin.value(),
             "max_speakers": self.max_spin.value(),
             "diar_pipeline": self.diar_cb.currentText(),
+            "asr_mode": "accurate" if self.cb_accurate.isChecked() else "fast",
+            "refine_speakers": self.cb_refine.isChecked(),
             "write_json": self.cb_json.isChecked(),
             "write_srt": self.cb_srt.isChecked(),
             "write_vtt": self.cb_vtt.isChecked(),

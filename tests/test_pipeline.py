@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 import time
+from pathlib import Path
+
+import pytest
 
 from sinribe.pipeline import (
-    ASR_TIERS, _asr_env, _diar_env, _job_key, pick_asr_tier, purge_old_jobs,
+    ASR_TIERS, JobSpec, Runner, StageError, _asr_env, _diar_env, _job_key, pick_asr_tier,
+    purge_old_jobs,
 )
+# Safe to import from the ASR venv: the worker only pulls torch/pyannote inside main().
+from sinribe.workers.refine_worker import trusted_turns
 
 
 class TestVramTiers:
@@ -100,6 +108,90 @@ class TestPurge:
         import sinribe.pipeline as pl
         monkeypatch.setattr(pl, "JOBS_DIR", tmp_path / "nope")
         assert purge_old_jobs(14) == 0
+
+
+class TestWorkerErrorPropagation:
+    """A failing worker emits an `error` event and *then* exits non-zero.
+
+    The exit-code check lives inside the _run_worker generator, so it runs before the caller's
+    loop body sees that last event. Unless the generator captures it, the real diagnosis is
+    replaced by a bare "exited with code 1" — which is how a plain "diarizer not installed"
+    reached the user as an unreadable stage failure — and kind="oom" is flattened to "runtime",
+    silently disabling the ASR tier ladder that dispatches on it.
+    """
+
+    def _drive(self, tmp_path, body: str):
+        (tmp_path / "fake_worker.py").write_text(body)
+        env = dict(os.environ)
+        env["PYTHONPATH"] = str(tmp_path)
+        runner = Runner(JobSpec(input_path=None, output_dir=tmp_path))
+        seen: list[dict] = []
+        for ev in runner._run_worker(Path(sys.executable), "fake_worker", {"x": 1}, env):
+            seen.append(ev)
+        return seen
+
+    def test_error_event_survives_a_nonzero_exit(self, tmp_path):
+        with pytest.raises(StageError) as excinfo:
+            self._drive(tmp_path,
+                        'import json, sys\n'
+                        'sys.stdin.readline()\n'
+                        'print(json.dumps({"ev": "error", "kind": "load", '
+                        '"msg": "pipeline not in local cache"}), flush=True)\n'
+                        'sys.exit(1)\n')
+        assert "pipeline not in local cache" in str(excinfo.value)
+        assert excinfo.value.kind == "load"
+
+    def test_oom_kind_reaches_the_caller(self, tmp_path):
+        # This is what the ASR fallback ladder branches on; "runtime" would abort the job
+        # instead of retrying at a smaller batch size.
+        with pytest.raises(StageError) as excinfo:
+            self._drive(tmp_path,
+                        'import json, sys\n'
+                        'sys.stdin.readline()\n'
+                        'print(json.dumps({"ev": "error", "kind": "oom", '
+                        '"msg": "CUDA out of memory"}), flush=True)\n'
+                        'sys.exit(1)\n')
+        assert excinfo.value.kind == "oom"
+
+    def test_bare_nonzero_exit_still_reports_the_code(self, tmp_path):
+        with pytest.raises(StageError, match="exited with code 3"):
+            self._drive(tmp_path, 'import sys\nsys.stdin.readline()\nsys.exit(3)\n')
+
+    def test_events_still_reach_the_caller(self, tmp_path):
+        seen = self._drive(tmp_path,
+                           'import json, sys\n'
+                           'sys.stdin.readline()\n'
+                           'print(json.dumps({"ev": "ready"}), flush=True)\n'
+                           'print("stray library chatter", flush=True)\n'
+                           'print(json.dumps({"ev": "done"}), flush=True)\n')
+        assert [e.get("ev") for e in seen] == ["ready", "done"]
+
+
+class TestTrustedTurns:
+    """Voice prints are only as good as the turns they are built from: a turn that touches a
+    differently-labelled neighbour may carry the other person's voice, and averaging that in
+    blurs the two prints together until the comparison decides nothing."""
+
+    def test_short_turns_are_rejected(self):
+        assert trusted_turns([{"start": 0.0, "end": 1.0, "speaker": "A"}]) == []
+
+    def test_isolated_long_turn_is_accepted(self):
+        assert len(trusted_turns([{"start": 0.0, "end": 5.0, "speaker": "A"}])) == 1
+
+    def test_turn_abutting_a_different_speaker_is_rejected(self):
+        turns = [{"start": 0.0, "end": 5.0, "speaker": "A"},
+                 {"start": 5.0, "end": 10.0, "speaker": "B"}]
+        assert trusted_turns(turns) == []
+
+    def test_a_gap_from_the_other_speaker_restores_trust(self):
+        turns = [{"start": 0.0, "end": 5.0, "speaker": "A"},
+                 {"start": 6.0, "end": 11.0, "speaker": "B"}]
+        assert len(trusted_turns(turns)) == 2
+
+    def test_same_speaker_neighbour_does_not_disqualify(self):
+        turns = [{"start": 0.0, "end": 5.0, "speaker": "A"},
+                 {"start": 5.0, "end": 10.0, "speaker": "A"}]
+        assert len(trusted_turns(turns)) == 2
 
 
 class TestCheckpointShape:

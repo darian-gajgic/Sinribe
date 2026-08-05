@@ -21,7 +21,7 @@ from typing import Callable, Iterator
 
 from . import audio, enrich as enrich_mod, fetch
 from .config import DOWNLOADS_DIR, JOBS_DIR, hf_token
-from .merge import DiarTurn, Word, merge
+from .merge import DiarTurn, SentenceScore, Word, merge, sentence_spans
 from .render import markdown, sidecar, subtitles
 from .textfmt import human_duration
 
@@ -38,15 +38,18 @@ STAGE_SHARES = {
     "decode": 0.04,
     "diarize": 0.28,
     "transcribe": 0.62,
+    "refine": 0.03,
     "finish": 0.06,
 }
 
 
-def stage_spans(with_fetch: bool) -> dict[str, tuple[float, float]]:
+def stage_spans(with_fetch: bool, with_refine: bool = True) -> dict[str, tuple[float, float]]:
     """Map each stage to its (start, width) on the 0..1 progress bar."""
     shares = dict(STAGE_SHARES)
     if not with_fetch:
         shares.pop("fetch")
+    if not with_refine:
+        shares.pop("refine")
     total = sum(shares.values())
     spans: dict[str, tuple[float, float]] = {}
     acc = 0.0
@@ -271,6 +274,11 @@ class Runner:
 
         t = threading.Thread(target=drain, daemon=True)
         t.start()
+        # A worker that fails emits an `error` event and *then* exits non-zero. The rc check below
+        # runs inside this generator, i.e. before the caller's loop body ever sees the last event,
+        # so the diagnosis has to be captured here — otherwise it is replaced by a bare "exited
+        # with code 1" and the caller's `kind` dispatch (the ASR OOM tier ladder) never fires.
+        last_err: dict | None = None
         try:
             assert proc.stdin is not None and proc.stdout is not None
             proc.stdin.write(json.dumps(job) + "\n")
@@ -284,9 +292,13 @@ class Runner:
                 if not line:
                     continue
                 try:
-                    yield json.loads(line)
+                    ev = json.loads(line)
                 except json.JSONDecodeError:
                     self._on_log(line)  # stray stdout print from a library
+                    continue
+                if isinstance(ev, dict) and ev.get("ev") == "error":
+                    last_err = ev
+                yield ev
             rc = proc.wait(timeout=120)
             # cancel() kills the child from another thread, which simply closes stdout and ends
             # the loop above without an exception. Without this check the stage would return its
@@ -295,6 +307,9 @@ class Runner:
             if self._cancel.is_set():
                 raise Cancelled("cancelled by user")
             if rc != 0:
+                if last_err:
+                    raise StageError(str(last_err.get("msg") or f"{module} exited with code {rc}"),
+                                     kind=str(last_err.get("kind") or "runtime"))
                 raise StageError(f"{module} exited with code {rc}")
         finally:
             t.join(timeout=2)
@@ -358,12 +373,70 @@ class Runner:
                                   "turns": [t.__dict__ for t in turns]}))
         return turns
 
+    def _refine(self, wav: Path, words: list[Word], diar_turns: list[DiarTurn],
+                cache: Path) -> list[SentenceScore]:
+        """Score every sentence against the speakers' voice prints; [] means 'no opinion'.
+
+        Failures here are deliberately non-fatal: the stage only ever *improves* attribution, so a
+        missing venv or an unexpected model error should cost accuracy, not the transcript.
+        """
+        spans = sentence_spans(words)
+        if not spans or len({t.speaker for t in diar_turns}) < 2:
+            self._frac(1.0)
+            return []
+
+        sentences = [{"start": round(words[s[0]].start, 3), "end": round(words[s[-1]].end, 3)}
+                     for s in spans]
+        settings = {"pipeline": self.cfg.get("diar_pipeline"), "n": len(sentences)}
+        ck = cache / "refine.json"
+        if ck.exists():
+            try:
+                data = json.loads(ck.read_text())
+                if data.get("settings") == settings:
+                    scores = [SentenceScore(**s) for s in data["scores"]]
+                    self.log(f"reusing speaker-refinement checkpoint ({len(scores)} sentences)")
+                    self._frac(1.0)
+                    return scores
+            except (json.JSONDecodeError, KeyError, TypeError):
+                pass
+
+        job = {"wav": str(wav), "sentences": sentences,
+               "turns": [t.__dict__ for t in diar_turns],
+               "pipeline": self.cfg.get("diar_pipeline"), "hf_token": hf_token(),
+               "device": "cuda"}
+        scores: list[SentenceScore] = []
+        try:
+            for ev in self._run_worker(DIAR_PYTHON, "sinribe.workers.refine_worker",
+                                       job, _diar_env()):
+                kind = ev.get("ev")
+                if kind == "progress":
+                    self._frac(float(ev.get("done", 0.0)))
+                elif kind == "result":
+                    scores = [SentenceScore(speaker=s.get("speaker"),
+                                            margin=float(s.get("margin") or 0.0))
+                              for s in ev.get("scores", [])]
+                elif kind == "error":
+                    self.log(f"speaker refinement unavailable: {ev.get('msg')}")
+        except Cancelled:
+            raise
+        except StageError as e:
+            self.log(f"speaker refinement skipped: {e}")
+            return []
+
+        self._check()  # never persist a checkpoint from an interrupted stage
+        if scores:
+            ck.write_text(json.dumps({"settings": settings,
+                                      "scores": [s.__dict__ for s in scores]}))
+        return scores
+
     def _transcribe(self, wav: Path, duration: float, cache: Path) -> tuple[list[Word], dict]:
+        accurate = str(self.cfg.get("asr_mode", "accurate")) == "accurate"
         settings = {
             "model": self.cfg.get("asr_model"),
             "language": self.cfg.get("language"),
             "beam_size": self.cfg.get("beam_size"),
             "vad_filter": self.cfg.get("vad_filter"),
+            "asr_mode": self.cfg.get("asr_mode"),
         }
         ck = cache / "asr.json"
         if ck.exists():
@@ -388,13 +461,19 @@ class Runner:
             job = {
                 "wav": str(wav), "duration": duration,
                 "model": self.cfg.get("asr_model", "large-v3"),
-                "device": device, "compute_type": compute_type, "batch_size": batch,
+                "device": device, "compute_type": compute_type,
+                # Accurate mode decodes sequentially. Batching splits the audio at VAD boundaries
+                # and decodes the pieces independently, which is where words at chunk edges go
+                # missing and where word timestamps lose the precision attribution needs.
+                "batch_size": 1 if accurate else batch,
+                "sequential": accurate,
                 "beam_size": int(self.cfg.get("beam_size", 5)),
                 "language": None if lang in (None, "", "auto") else lang,
                 "vad_filter": bool(self.cfg.get("vad_filter", True)),
             }
             words: list[Word] = []
-            info: dict = {"device": device, "compute_type": compute_type, "batch_size": batch}
+            info: dict = {"device": device, "compute_type": compute_type,
+                          "batch_size": job["batch_size"], "asr_mode": self.cfg.get("asr_mode")}
             err: dict | None = None
             try:
                 for ev in self._run_worker(ASR_PYTHON, "sinribe.workers.asr_worker",
@@ -463,7 +542,8 @@ class Runner:
         t_start = time.time()
         out_dir = Path(self.spec.output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
-        spans = stage_spans(with_fetch=bool(self.spec.url))
+        refine = bool(self.cfg.get("refine_speakers", True))
+        spans = stage_spans(with_fetch=bool(self.spec.url), with_refine=refine)
 
         if self.spec.url:
             self._stage("Downloading audio", *spans["fetch"])
@@ -498,6 +578,17 @@ class Runner:
         words, asr_info = self._transcribe(wav, info.duration, cache)
         self.log(f"transcription: {len(words)} words")
 
+        scores: list[SentenceScore] = []
+        if refine:
+            self._check()
+            self._stage("Checking speakers", *spans["refine"])
+            scores = self._refine(wav, words, diar_turns, cache)
+            if scores:
+                decisive = sum(1 for s in scores
+                               if s.speaker and s.margin >= float(
+                                   self.cfg.get("refine_margin", 0.15)))
+                self.log(f"voice-print check: {decisive}/{len(scores)} sentences decisive")
+
         self._check()
         base, fin = spans["finish"]
         self._stage("Aligning speakers", base, fin * 0.2)
@@ -507,6 +598,10 @@ class Runner:
             max_turn_chars=int(self.cfg.get("max_turn_chars", 1200)),
             flicker_min_words=int(self.cfg.get("flicker_min_words", 3)),
             orphan_window_s=float(self.cfg.get("orphan_word_window_s", 2.0)),
+            sentence_atomic=bool(self.cfg.get("sentence_atomic", True)),
+            sentence_scores=scores or None,
+            refine_margin=float(self.cfg.get("refine_margin", 0.15)),
+            refine_min_seconds=float(self.cfg.get("refine_min_seconds", 0.8)),
         )
         self._frac(1.0)
         self.log(f"merged into {len(turns)} turns across {len(stats)} speaker(s)")
