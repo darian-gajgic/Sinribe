@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from sinribe.merge import Word, sentence_spans
 from sinribe.textfmt import (
-    format_sentences, hhmmss, hm, hms, human_duration, slugify, srt_time, vtt_time,
+    format_sentences, hhmmss, hm, hms, human_duration, is_sentence_end, slugify, srt_time,
+    vtt_time,
 )
 
 
@@ -72,3 +74,51 @@ class TestTimestamps:
 def test_slugify():
     assert slugify("00:20 — Rückkopplung") == "0020-rückkopplung"
     assert slugify("!!!") == "section"
+
+
+class TestSentenceRuleIsShared:
+    """merge.sentence_spans groups a word LIST and format_sentences splits a STRING. Speaker
+    attribution is decided on the first and printed by the second, so they must agree — a
+    sentence grouped one way and printed another would reintroduce mid-sentence speaker splits."""
+
+    CASES = [
+        "Hallo Welt. Wie geht es dir? Gut!",
+        "Frag Dr. Meier nach dem Termin. Er weiss Bescheid.",
+        "Das kostet 8. Und das ist viel.",
+        "Ein Satz ohne Punkt am Ende",
+        "J. R. R. Tolkien schrieb das. Danach kam nichts.",
+        "Wirklich?! Ja. Genau so.",
+    ]
+
+    def test_same_number_of_sentences(self):
+        for text in self.CASES:
+            words = [Word(start=i, end=i + 1, word=w) for i, w in enumerate(text.split())]
+            assert len(sentence_spans(words)) == len(format_sentences(text).split("\n")), text
+
+    def test_same_sentence_texts(self):
+        for text in self.CASES:
+            words = [Word(start=i, end=i + 1, word=w) for i, w in enumerate(text.split())]
+            grouped = [" ".join(words[i].word for i in span) for span in sentence_spans(words)]
+            assert grouped == format_sentences(text).split("\n"), text
+
+
+class TestIsSentenceEnd:
+    def test_plain_terminator(self):
+        assert is_sentence_end("Welt.")
+        assert is_sentence_end("dir?")
+        assert is_sentence_end("gut!")
+
+    def test_no_terminator(self):
+        assert not is_sentence_end("Welt")
+        assert not is_sentence_end("")
+
+    def test_abbreviation_is_not_an_end(self):
+        assert not is_sentence_end("Dr.")
+        assert not is_sentence_end("z.B.")
+
+    def test_initial_is_not_an_end(self):
+        assert not is_sentence_end("J.")
+
+    def test_number_ends_a_clause_but_not_a_list_marker(self):
+        assert is_sentence_end("8.")
+        assert not is_sentence_end("1.", alone=True)

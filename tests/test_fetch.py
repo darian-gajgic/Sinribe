@@ -80,6 +80,15 @@ class TestStageSpans:
                 acc += width
             assert abs(acc - 1.0) < 1e-9
 
+    def test_refine_can_be_left_out(self):
+        spans = stage_spans(with_fetch=False, with_refine=False)
+        assert "refine" not in spans
+        start, width = spans["finish"]
+        assert abs(start + width - 1.0) < 1e-9
+
+    def test_refine_is_included_by_default(self):
+        assert "refine" in stage_spans(with_fetch=False)
+
     def test_fetch_shrinks_the_other_stages(self):
         without = stage_spans(with_fetch=False)
         with_ = stage_spans(with_fetch=True)
