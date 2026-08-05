@@ -1,0 +1,17 @@
+# Sinribe — diarization venv (CUDA 13 stack). Python 3.12.
+#
+#   uv venv --python 3.12 .venv-diar
+#   uv pip install --python .venv-diar/bin/python -r requirements-diar.txt
+#
+# This is deliberately a SECOND venv, not a convenience. PyPI torch 2.13 is a cu13 build and
+# ships libcublas.so.13 / nvidia-cudnn-cu13, while ctranslate2 4.8.0 in the ASR venv hard-requires
+# libcublas.so.12. One venv cannot satisfy both. Splitting also means the diarization process
+# exits between stages, which is the only reliable way to give the CUDA context's VRAM back
+# (see Nexus app/stt_worker.py:28-32 -- in-process unloading does not reclaim it).
+#
+# torch cu13 matches this box's driver (595.71.05 / CUDA 13.2) and has sm_120 in its arch list.
+
+pyannote.audio==4.0.7
+torch==2.13.0
+soundfile==0.14.0
+numpy

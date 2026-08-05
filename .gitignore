@@ -1,0 +1,23 @@
+.venv/
+.venv-diar/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Never commit the HuggingFace token (it lives in ~/.config/sinribe/hf_token anyway)
+hf_token
+*.token
+
+# Transcript output. These are personal artefacts and are frequently verbatim transcripts of
+# third-party material, so they must never end up in the repository — even when someone points
+# the output folder at the project directory.
+/Transcriptions/
+/Sinribe-Transcripts/
+*.sinribe.json
+*.srt
+*.vtt
+# Any stray .md dropped in the repo root is transcript output; the real docs are listed back in.
+/*.md
+!/README.md
+!/HANDOFF.md
