@@ -99,9 +99,10 @@ fi
 
 # ---------------------------------------------------------------- launchers
 say "installing launcher and desktop entry"
-chmod +x "$HERE/sinribe-run"
+chmod +x "$HERE/sinribe-run" "$HERE/sinribe-eval" "$HERE/tools/convert_german_models.sh"
 mkdir -p "$BIN_DIR" "$APPS_DIR"
 ln -sfn "$HERE/sinribe-run" "$BIN_DIR/sinribe"
+ln -sfn "$HERE/sinribe-eval" "$BIN_DIR/sinribe-eval"
 
 sed "s|^Exec=.*|Exec=$HERE/sinribe-run|" "$HERE/sinribe.desktop" > "$APPS_DIR/sinribe.desktop"
 chmod 644 "$APPS_DIR/sinribe.desktop"

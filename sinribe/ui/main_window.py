@@ -5,16 +5,19 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, QUrl
+from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
-    QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSpinBox,
+    QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSlider, QSpinBox,
     QVBoxLayout, QWidget,
 )
 
-from .. import audio
-from ..config import ASR_MODELS, DIAR_PIPELINES, DOWNLOADS_DIR, LANGUAGES, save_config
+from .. import audio, presets
+from ..config import (
+    ASR_MODELS, DIAR_PIPELINES, DOWNLOADS_DIR, LANGUAGES, diar_available, model_available,
+    save_config, supports_hotwords,
+)
 from ..fetch import is_url, purge_old_downloads
 from ..merge import speaker_stats
 from ..pipeline import JobSpec, free_vram_mib, gpu_tenants, purge_old_jobs
@@ -52,6 +55,9 @@ class MainWindow(QWidget):
         self._url_meta = None
         self._probe_thread = None
         self._probe_worker = None
+        # Length of whatever source is currently loaded, so the quality slider can say what its
+        # position costs in minutes rather than in multipliers.
+        self._source_seconds = 0.0
         # Monotonic, not wall clock: a 4-hour job started before midnight would otherwise
         # report a negative elapsed time once the date rolls over.
         self._started_at = time.monotonic()
@@ -203,9 +209,23 @@ class MainWindow(QWidget):
 
         g.addWidget(QLabel("Model"), 0, 0)
         self.model_cb = QComboBox()
-        self.model_cb.addItems(ASR_MODELS)
-        self.model_cb.setCurrentText(str(self.cfg.get("asr_model", "large-v3")))
-        self.model_cb.setToolTip("large-v3 is the most accurate and is already downloaded.")
+        for name in ASR_MODELS:
+            ready = model_available(name)
+            self.model_cb.addItem(name if ready else f"{name}  (not installed)", name)
+            if not ready:
+                self.model_cb.model().item(self.model_cb.count() - 1).setEnabled(False)
+        i = self.model_cb.findData(str(self.cfg.get("asr_model", "auto")))
+        self.model_cb.setCurrentIndex(max(0, i))
+        # The model choice decides which model the quality caption describes and whether the
+        # hotwords field is usable at all, so both have to follow it.
+        self.model_cb.currentIndexChanged.connect(self._sync_quality)
+        self.model_cb.setToolTip(
+            "'auto' lets the quality setting below pick the model, which is usually what you\n"
+            "want.\n\n"
+            "The German models are fine-tuned on German alone. That is not automatically\n"
+            "better: on a hard far-field interview large-v3 beat them clearly, and they are\n"
+            "worth trying on clean, close-miked German. Measure with sinribe-eval rather than\n"
+            "assuming. Install them with tools/convert_german_models.sh.")
         g.addWidget(self.model_cb, 0, 1)
 
         g.addWidget(QLabel("Language"), 0, 2)
@@ -244,31 +264,66 @@ class MainWindow(QWidget):
 
         g.addWidget(QLabel("Diarizer"), 2, 0)
         self.diar_cb = QComboBox()
-        self.diar_cb.addItems(DIAR_PIPELINES)
-        self.diar_cb.setCurrentText(str(self.cfg.get("diar_pipeline", DIAR_PIPELINES[0])))
+        for name in DIAR_PIPELINES:
+            ready = diar_available(name)
+            self.diar_cb.addItem(name if ready else f"{name}  (not installed)", name)
+            if not ready:
+                # Selectable-but-doomed is the worst of both: the job decodes the audio, starts
+                # diarizing, and only then discovers the pipeline was never downloaded.
+                self.diar_cb.model().item(self.diar_cb.count() - 1).setEnabled(False)
+        i = self.diar_cb.findData(str(self.cfg.get("diar_pipeline", DIAR_PIPELINES[0])))
+        self.diar_cb.setCurrentIndex(max(0, i))
         self.diar_cb.setToolTip(
             "community-1 is the current pyannote pipeline and is installed.\n"
-            "speaker-diarization-3.1 requires accepting its licence on huggingface.co first.")
+            "speaker-diarization-3.1 needs its licence accepted on huggingface.co and then\n"
+            "downloading; until it is in the local cache it cannot be selected, because the\n"
+            "workers run fully offline and would fail part-way through the job.")
         g.addWidget(self.diar_cb, 2, 1, 1, 3)
+
+        g.addWidget(QLabel("Names & terms"), 3, 0)
+        self.hotwords_edit = QLineEdit(str(self.cfg.get("hotwords", "")))
+        self.hotwords_edit.setPlaceholderText("Fujitsu, Siemens, VR-Bank, Dr. Meier …")
+        self.hotwords_edit.setToolTip(
+            "Proper nouns and jargon to expect, comma-separated. Whisper mangles names it has\n"
+            "no reason to predict — in one interview 'Fujitsu' came out as 'fiuzi', 'jitze'\n"
+            "and 'future service'.\n\n"
+            "A weak lever, measured: it rescued a name the model was already close to and left\n"
+            "the badly-heard ones alone, at a small cost to overall accuracy. Worth trying;\n"
+            "worth checking with sinribe-eval before trusting.")
+        g.addWidget(self.hotwords_edit, 3, 1, 1, 3)
+
+        # RUNGS run fastest-first, so the raw slider position already reads left = quick,
+        # right = careful, which is the direction a control labelled "Quality" implies. The
+        # caption carries the actual promise: the target speed, and the WER it measured.
+        g.addWidget(QLabel("Quality"), 4, 0)
+        quality = QHBoxLayout()
+        quality.setSpacing(10)
+        self.speed_slider = QSlider(Qt.Orientation.Horizontal)
+        self.speed_slider.setRange(0, len(presets.RUNGS) - 1)
+        self.speed_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.speed_slider.setTickInterval(1)
+        self.speed_slider.setPageStep(1)
+        self.speed_slider.setMinimumWidth(180)
+        current = presets.for_target(self.cfg.get("speed_target", 6))
+        self.speed_slider.setValue(presets.RUNGS.index(current))
+        self.speed_slider.valueChanged.connect(self._sync_quality)
+        quality.addWidget(self.speed_slider, 1)
+        self.speed_label = QLabel()
+        self.speed_label.setMinimumWidth(150)
+        quality.addWidget(self.speed_label)
+        g.addLayout(quality, 4, 1, 1, 3)
 
         accuracy = QHBoxLayout()
         accuracy.setSpacing(22)
-        self.cb_accurate = QCheckBox("Accurate decoding")
-        self.cb_accurate.setChecked(str(self.cfg.get("asr_mode", "accurate")) == "accurate")
-        self.cb_accurate.setToolTip(
-            "Decode the audio in one pass instead of in parallel chunks.\n"
-            "Picks up words that chunking drops and gives tighter word timings,\n"
-            "which is what speaker attribution is built on. Roughly half the speed.")
         self.cb_refine = QCheckBox("Voice-print speaker check")
         self.cb_refine.setChecked(bool(self.cfg.get("refine_speakers", True)))
         self.cb_refine.setToolTip(
             "After transcribing, compare every sentence against each speaker's voice and\n"
             "correct the diarizer where the match is decisive. Fixes short answers that get\n"
             "absorbed into the previous question. Costs a few seconds.")
-        for w in (self.cb_accurate, self.cb_refine):
-            accuracy.addWidget(w)
+        accuracy.addWidget(self.cb_refine)
         accuracy.addStretch(1)
-        g.addLayout(accuracy, 3, 0, 1, 4)
+        g.addLayout(accuracy, 5, 0, 1, 4)
 
         checks = QHBoxLayout()
         checks.setSpacing(22)
@@ -284,10 +339,18 @@ class MainWindow(QWidget):
         self.cb_llm.setChecked(bool(self.cfg.get("llm_enrich", False)))
         self.cb_llm.setToolTip(f"Uses {self.cfg.get('llm_model')} on your local Ollama. "
                                f"Offline. Adds a few minutes at the end.")
-        for w in (self.cb_json, self.cb_srt, self.cb_vtt, self.cb_llm):
+        self.cb_review = QCheckBox("Flag uncertain passages")
+        self.cb_review.setChecked(bool(self.cfg.get("review_section", True)))
+        self.cb_review.setToolTip(
+            "Append the passages the recogniser was least sure of, with timestamps.\n"
+            "Measured on a hard interview, 57% of the words it flags are genuinely wrong —\n"
+            "so this is the list to check by ear instead of re-listening to the whole\n"
+            "recording. Every flagged passage is listed, in time order; a hard 65-minute\n"
+            "interview produces a few hundred.")
+        for w in (self.cb_json, self.cb_srt, self.cb_vtt, self.cb_llm, self.cb_review):
             checks.addWidget(w)
         checks.addStretch(1)
-        g.addLayout(checks, 4, 0, 1, 4)
+        g.addLayout(checks, 6, 0, 1, 4)
         g.setColumnStretch(1, 1)
         g.setColumnStretch(3, 1)
 
@@ -295,6 +358,7 @@ class MainWindow(QWidget):
         v.addWidget(self.opts_body)
         root.addWidget(card)
         self._sync_speaker_inputs()
+        self._sync_quality()
 
     def _toggle_options(self) -> None:
         vis = self.opts_body.isVisible()
@@ -417,12 +481,14 @@ class MainWindow(QWidget):
         self.cfg["last_input_dir"] = str(path.parent)
         try:
             info = audio.probe(path)
-            est = human_duration(info.duration / 9.0) if info.duration else "?"
+            self._source_seconds = info.duration
             self.file_info.setText(
                 f"{hms(info.duration)}  ·  {info.codec}  ·  {info.channels}ch @ "
-                f"{info.sample_rate} Hz  ·  estimated ~{est}")
+                f"{info.sample_rate} Hz  ·  estimated ~{self._estimate()}")
             self.start_btn.setEnabled(True)
+            self._sync_quality()
         except audio.AudioError as e:
+            self._source_seconds = 0.0
             self.file_info.setText(f"⚠  {e}")
             self.start_btn.setEnabled(False)
 
@@ -454,15 +520,16 @@ class MainWindow(QWidget):
 
     def _on_probe_done(self, meta) -> None:
         self._url_meta = meta
+        self._source_seconds = float(meta.duration or 0.0)
         self.check_btn.setEnabled(True)
-        est = human_duration(meta.duration / 9.0) if meta.duration else "?"
         bits = [meta.title]
         if meta.uploader:
             bits.append(meta.uploader)
         if meta.duration:
             bits.append(hms(meta.duration))
-        bits.append(f"estimated ~{est}")
+        bits.append(f"estimated ~{self._estimate()}")
         self.url_info.setText("  ·  ".join(bits))
+        self._sync_quality()
         self.start_btn.setEnabled(True)
 
     def _on_probe_failed(self, msg: str) -> None:
@@ -490,21 +557,81 @@ class MainWindow(QWidget):
                 break
 
     # ---------------------------------------------------------------- job control
+    def _rung(self) -> presets.Rung:
+        return presets.RUNGS[self.speed_slider.value()]
+
+    def _estimate(self, rung: presets.Rung | None = None) -> str:
+        """How long the loaded file will take at this quality.
+
+        Prefers what this machine has actually done over the shipped benchmark figure.
+        """
+        secs = getattr(self, "_source_seconds", 0.0)
+        if not secs:
+            return "?"
+        rung = rung or self._rung()
+        return human_duration(rung.duration_for(secs, presets.observed_rtf(self.cfg, rung)))
+
+    def _sync_quality(self) -> None:
+        """Keep the slider's caption honest about what the current position costs and buys."""
+        rung = self._rung()
+        model = presets.model_for({"asr_model": self.model_cb.currentData(),
+                                   "speed_target": rung.target_rtf})
+        # The abstract multiplier means little; "~22 min for this file" is the number someone
+        # actually weighs against a fraction of a percent of accuracy.
+        est = self._estimate(rung)
+        self.speed_label.setText(rung.label() + (f"\n≈ {est} for this file" if est != "?" else ""))
+
+        best = min((r.measured_wer for r in presets.RUNGS if r.measured_wer is not None),
+                   default=None)
+        lines = [rung.note]
+        if rung.measured_wer is not None and best is not None and rung.measured_wer > best:
+            lines.append(f"About {rung.measured_wer - best:.1%} more wrong words than the most "
+                         f"accurate setting.")
+        if not rung.recommended:
+            rec = presets.recommended()
+            lines.append(f"Recommended: {rec.label().replace('  ★ recommended', '')}"
+                         + (f" (≈ {self._estimate(rec)})" if self._estimate(rec) != "?" else ""))
+        # A pinned model silently overrides the rung's choice, which is how someone ends up
+        # running a model that measured worse without any sign of it on screen.
+        if self.model_cb.currentData() == "auto":
+            lines.append(f"Model: {model}")
+        else:
+            lines.append(f"Model: {model} — pinned in the dropdown, overriding this setting's "
+                         f"choice of {rung.model}. The measured numbers above are for "
+                         f"{rung.model}.")
+        if not model_available(model):
+            lines.append("NOT INSTALLED — run tools/convert_german_models.sh")
+        self.speed_label.setToolTip("\n\n".join(lines))
+        self.speed_slider.setToolTip(self.speed_label.toolTip())
+
+        # Better to make the broken combination unreachable than to explain it afterwards.
+        usable = supports_hotwords(model)
+        self.hotwords_edit.setEnabled(usable)
+        if usable:
+            self.hotwords_edit.setPlaceholderText("Fujitsu, Siemens, VR-Bank, Dr. Meier …")
+        else:
+            self.hotwords_edit.setPlaceholderText(f"not supported by {model}")
+            self.hotwords_edit.setToolTip(
+                f"{model} returns an empty transcript when it is given expected names, so the\n"
+                f"field is disabled here. large-v3 and large-v3-turbo-german both support it.")
+
     def _collect_cfg(self) -> dict:
         self.cfg.update({
-            "asr_model": self.model_cb.currentText(),
             "language": self.lang_cb.currentData(),
             "speaker_mode": self.spk_cb.currentData(),
             "num_speakers": self.num_spin.value(),
             "min_speakers": self.min_spin.value(),
             "max_speakers": self.max_spin.value(),
-            "diar_pipeline": self.diar_cb.currentText(),
-            "asr_mode": "accurate" if self.cb_accurate.isChecked() else "fast",
+            "diar_pipeline": self.diar_cb.currentData(),
+            "asr_model": self.model_cb.currentData(),
+            "hotwords": self.hotwords_edit.text().strip(),
+            "speed_target": self._rung().target_rtf,
             "refine_speakers": self.cb_refine.isChecked(),
             "write_json": self.cb_json.isChecked(),
             "write_srt": self.cb_srt.isChecked(),
             "write_vtt": self.cb_vtt.isChecked(),
             "llm_enrich": self.cb_llm.isChecked(),
+            "review_section": self.cb_review.isChecked(),
             "output_dir": self.out_edit.text(),
             "last_url": self.url_edit.text().strip(),
         })
@@ -591,6 +718,11 @@ class MainWindow(QWidget):
             self.detail_lbl.setText(
                 f"{human_duration(result['elapsed'])}  ·  "
                 f"{result['realtime_factor']:.1f}× realtime")
+            # Teach the estimate what this machine actually does. A cache-served job is excluded
+            # above, since its realtime factor describes the cache and not the recogniser.
+            presets.record_rtf(self.cfg, result.get("speed_target", self.cfg.get("speed_target")),
+                               result.get("realtime_factor", 0.0))
+            self._sync_quality()
         self.start_btn.setEnabled(True)
         self.cancel_btn.setEnabled(False)
         self._set_inputs_enabled(True)
@@ -650,7 +782,9 @@ class MainWindow(QWidget):
         markdown.write(out_dir / f"{stem}.md",
                        markdown.render(turns, stats, self._result,
                                        title=self._result.get("title"),
-                                       enrichment=self._result.get("enrichment")))
+                                       enrichment=self._result.get("enrichment"),
+                                       review=bool(self.cfg.get("review_section", True)),
+                                       review_max=int(self.cfg.get("review_max_spans", 0))))
         if self.cfg.get("write_json", True):
             payload = sidecar.build(turns, stats, self._result,
                                     enrichment=self._result.get("enrichment"),
