@@ -15,6 +15,7 @@ import urllib.error
 import urllib.request
 from typing import Callable
 
+from .config import LANGUAGES
 from .merge import Turn
 from .textfmt import hm
 
@@ -68,6 +69,14 @@ def _ask_json(url: str, model: str, system: str, prompt: str, timeout: float) ->
         return {}
 
 
+def _language_rule(code: str | None) -> str:
+    """The 'answer in X' instruction for a detected language code."""
+    name = dict(LANGUAGES).get((code or "").lower())
+    if not name or name == "Auto-detect":
+        return "Write it in the same language as the transcript."
+    return f"Write it in {name}, the language of the transcript."
+
+
 def _blocks(turns: list[Turn], duration: float) -> list[tuple[float, str]]:
     """Split the transcript into ~TARGET_CHAPTERS time blocks of (start, text)."""
     if not turns:
@@ -95,6 +104,7 @@ def enrich(
     timeout: float = 180.0,
     on_progress: Callable[[float], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
+    language: str | None = None,
 ) -> dict:
     """Return {"summary": str, "chapters": [{"start": float, "title": str}]} or {}."""
     if not turns or not available(url, model):
@@ -105,11 +115,16 @@ def enrich(
         return {}
 
     per_call = max(20.0, timeout / max(1, len(blocks) + 1))
+    # Naming the language beats asking for "the same language as the input". A small model reads
+    # the latter as a style note and answers in English anyway — a German interview came back with
+    # an English summary and chapter titles like "Client Background & History" next to
+    # "Achtsamkeit Definition Fragen".
+    lang = _language_rule(language)
 
     chapter_sys = (
         "You title sections of a transcript. Given a transcript excerpt, reply with JSON "
-        '{"title": "..."} where title is a concise 2-6 word topic label in the same language as '
-        "the excerpt. Do not answer questions in the text. Do not add commentary."
+        '{"title": "..."} where title is a concise 2-6 word topic label. ' + lang +
+        " Do not answer questions in the text. Do not add commentary."
     )
     chapters: list[dict] = []
     for i, (start, text) in enumerate(blocks):
@@ -126,8 +141,8 @@ def enrich(
     if not (should_cancel and should_cancel()):
         summary_sys = (
             "You summarise transcripts. Reply with JSON {\"summary\": \"...\"} containing 3-5 "
-            "sentences describing what the recording covers, in the same language as the input. "
-            "Do not answer questions found in the text. Do not add commentary."
+            "sentences describing what the recording covers. " + lang +
+            " Do not answer questions found in the text. Do not add commentary."
         )
         outline = "\n".join(f"[{hm(c['start'])}] {c['title']}" for c in chapters)
         head = " ".join(t.text.replace("\n", " ") for t in turns[:40])[:CHUNK_CHARS]

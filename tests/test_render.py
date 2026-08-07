@@ -95,6 +95,130 @@ class TestMarkdown:
         assert not (tmp_path / "nested" / "out.md.tmp").exists()
 
 
+class TestEnrichmentLanguage:
+    """gemma3:4b summarised a German interview in English and titled its chapters
+    "Client Background & History". "Same language as the input" is not an instruction a small
+    model reliably follows; naming the language is."""
+
+    def test_detected_language_is_named(self):
+        from sinribe.enrich import _language_rule
+        assert "German" in _language_rule("de")
+        assert "English" in _language_rule("en")
+
+    def test_unknown_language_falls_back_without_naming_one(self):
+        from sinribe.enrich import _language_rule
+        for code in (None, "", "auto", "zz"):
+            rule = _language_rule(code)
+            assert "same language" in rule
+            assert "German" not in rule
+
+
+class TestReviewSpans:
+    """The 'worth a listen' list — a proofreading aid, so it must point at real spots only."""
+
+    @staticmethod
+    def _turn(probs, start=0.0):
+        words = [Word(start + i * 0.5, start + i * 0.5 + 0.4, f"w{i}", prob=p)
+                 for i, p in enumerate(probs)]
+        return Turn(speaker="Person 1", raw="S0", start=words[0].start, end=words[-1].end,
+                    text=" ".join(w.word for w in words), words=words)
+
+    def test_confident_transcript_has_nothing_to_review(self):
+        turns = [self._turn([0.99] * 8)]
+        assert markdown.review_spans(turns) == []
+
+    def test_finds_the_uncertain_word(self):
+        turns = [self._turn([0.99, 0.99, 0.2, 0.99, 0.99])]
+        spans = markdown.review_spans(turns)
+        assert len(spans) == 1
+        assert "**w2**" in spans[0][2]
+
+    def test_includes_surrounding_context(self):
+        turns = [self._turn([0.9] * 6 + [0.1] + [0.9] * 6)]
+        _, _, text = markdown.review_spans(turns, context=2)[0]
+        assert "w4 w5 **w6** w7 w8" in text
+
+    def test_nearby_uncertain_words_merge_into_one_passage(self):
+        # "…, [one confident word], …" is one thing to re-listen to, not two.
+        turns = [self._turn([0.9, 0.2, 0.9, 0.2, 0.9])]
+        assert len(markdown.review_spans(turns)) == 1
+
+    def test_distant_uncertain_words_stay_separate(self):
+        turns = [self._turn([0.2] + [0.9] * 6 + [0.2])]
+        assert len(markdown.review_spans(turns)) == 2
+
+    def test_reports_the_start_of_the_uncertain_run(self):
+        turns = [self._turn([0.99, 0.99, 0.2, 0.99], start=100.0)]
+        assert markdown.review_spans(turns)[0][0] == 101.0
+
+    def test_respects_the_cap(self):
+        turns = [self._turn([0.2, 0.9, 0.9, 0.9, 0.9] * 40)]
+        assert len(markdown.review_spans(turns, max_spans=5)) == 5
+
+    def test_the_cap_keeps_the_least_confident_not_the_earliest(self):
+        # Truncating in time order would hand back a review list covering only the opening
+        # minutes of a long recording while the worst passages sit past the cutoff.
+        probs = [0.9] * 60
+        probs[2] = 0.45          # early, mildly doubtful
+        probs[50] = 0.05         # late, the worst passage in the file
+        spans = markdown.review_spans([self._turn(probs)], max_spans=1)
+        assert "**w50**" in spans[0][2]
+
+    def test_capped_output_is_still_in_time_order(self):
+        probs = [0.9] * 60
+        for i, p in ((5, 0.1), (25, 0.05), (45, 0.02)):
+            probs[i] = p
+        starts = [s for s, _, _ in markdown.review_spans([self._turn(probs)], max_spans=3)]
+        assert starts == sorted(starts)
+
+    def test_total_count_ignores_the_cap(self):
+        turns = [self._turn([0.2, 0.9, 0.9, 0.9, 0.9] * 40)]
+        assert markdown.count_review_spans(turns) == 40
+
+    def test_section_says_when_it_is_showing_a_subset(self):
+        turns = [self._turn([0.2, 0.9, 0.9, 0.9, 0.9] * 80)]
+        md = markdown.render(turns, {}, RESULT, review=True, review_max=60)
+        assert "of 80" in md
+
+    def test_section_stays_quiet_when_nothing_was_dropped(self):
+        turns = [self._turn([0.2, 0.9, 0.9, 0.9, 0.9] * 3)]
+        md = markdown.render(turns, {}, RESULT, review=True)
+        assert "## Worth a listen" in md
+        assert "Showing the" not in md
+
+    def test_nothing_is_dropped_by_default(self):
+        # The section is a proofreading checklist. It used to stop at 60, so on the recording it
+        # was built for it silently withheld 303 of the 363 places worth an ear.
+        turns = [self._turn([0.2, 0.9, 0.9, 0.9, 0.9] * 80)]
+        assert len(markdown.review_spans(turns)) == 80
+        md = markdown.render(turns, {}, RESULT, review=True)
+        assert "Showing the" not in md
+        assert "All 80 of them are here" in md
+
+    def test_a_cap_of_zero_means_everything(self):
+        turns = [self._turn([0.2, 0.9, 0.9, 0.9, 0.9] * 40)]
+        assert len(markdown.review_spans(turns, max_spans=0)) == 40
+
+    def test_spans_are_sorted_by_time(self):
+        turns = [self._turn([0.2, 0.9], start=50.0), self._turn([0.2, 0.9], start=10.0)]
+        starts = [s for s, _, _ in markdown.review_spans(turns)]
+        assert starts == sorted(starts)
+
+    def test_section_is_opt_in(self):
+        turns, stats = _sample()
+        assert "Worth a listen" not in markdown.render(turns, stats, RESULT)
+
+    def test_section_renders_when_asked(self):
+        turns = [self._turn([0.99, 0.2, 0.99])]
+        md = markdown.render(turns, {}, RESULT, review=True)
+        assert "## Worth a listen" in md
+        assert "**[00:00:00]**" in md
+
+    def test_no_section_when_everything_is_confident(self):
+        turns, stats = _sample()   # merge() defaults every word to prob 1.0
+        assert "Worth a listen" not in markdown.render(turns, stats, RESULT, review=True)
+
+
 class TestSubtitles:
     def test_srt_format(self):
         turns, _ = _sample()

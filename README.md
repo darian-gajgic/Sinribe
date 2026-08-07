@@ -23,7 +23,7 @@ For `vorlesung.m4a` you get `vorlesung.md`, plus optionally `vorlesung.sinribe.j
 # vorlesung
 
 **Duration** 2:14:33 · **Speakers** 3 · **Language** de (0.98)
-**Model** large-v3 · CUDA · float16 · **Diarization** speaker-diarization-community-1
+**Model** large-v3 · CUDA · float16 · **Diarization** speaker-diarization-community-1 · **Quality** 20× target
 **Source** `/home/sinep/Recordings/vorlesung.m4a`
 **Transcribed** 2026-07-26 18:03 · 14m 21s (9.4× realtime)
 
@@ -46,6 +46,22 @@ Kurze Frage vorab — welches Skript gilt?
 One sentence per line, so diffs and quotes stay clean. Turns break on speaker change, on silences
 longer than 1.5 s, and before any single turn grows past ~1200 characters — otherwise a lecturer
 holding the floor for forty minutes becomes one unreadable wall of text.
+
+At the end, unless you turn it off, comes a **Worth a listen** section: the passages the
+recogniser was least sure of, with timestamps and the doubtful words in bold.
+
+```markdown
+## Worth a listen
+
+- **[00:14:52]** Person 2: schon ein elementares Element. **Bei einer** Nasenatmung zum Beispiel
+- **[00:31:07]** Person 1: wenn das in eurem **Ruf steht.**
+```
+
+Fifty-seven percent of the words it flags are genuinely wrong, so on a difficult recording this is
+where an hour of checking gets you the most back — considerably more than any decode setting will.
+Every flagged passage is listed, in time order, so the section doubles as a checklist to work
+through against the audio; a hard 65-minute interview produces a few hundred. Set
+`review_max_spans` in the config if you would rather have only the *n* least confident.
 
 ## Pasting a link
 
@@ -168,9 +184,12 @@ The sidecar `.json` holds word-level timestamps, so renaming a speaker (`Person 
 
 | Option | Default | Notes |
 |---|---|---|
-| Model | `large-v3` | `medium.en` and `small` are also cached locally |
+| Quality | 10× realtime ★ | The slider *is* the speed, 84× down to 1×. Each position shows its measured error rate |
+| Model | `auto` | The quality setting picks one. Override with `large-v3`, a German model, `medium.en`, `small` |
+| Names & terms | empty | Proper nouns to expect. Helps with names the model nearly gets; see below |
 | Language | Auto-detect | Or pin it, which is slightly faster and safer on quiet openings |
 | Speakers | Auto-detect | Or set exactly N, or a min–max range |
+| Flag uncertain passages | on | Appends the spots worth checking by ear, with timestamps. 57 % of what it flags is genuinely wrong |
 | Sidecar `.json` | on | Needed for instant re-export |
 | `.srt` / `.vtt` | on | Speaker-prefixed cues |
 | LLM chapters + summary | off | Uses `gemma3:4b` on your local Ollama (`:11435`); still offline |
@@ -178,6 +197,128 @@ The sidecar `.json` holds word-level timestamps, so renaming a speaker (`Person 
 | `keep_downloads` | `true` | Set false to expire cached downloads after `download_cache_days` |
 
 Settings live in `~/.config/sinribe/config.json`.
+
+### What the quality slider is, and what it is not
+
+Its value is the target realtime factor, so "20×" means an hour of audio in three minutes. Each
+position carries the error rate it actually scored on a hard German interview, and the estimated
+time for the file you have loaded — so it reads *"20.4× realtime · 21.3% errors · ≈ 3m 13s for
+this file"* rather than *"high quality"*.
+
+| Slider | Passes | Speed | Errors | |
+|---|---|---|---|---|
+| 84× | 1 | 85× | 23.1 % | turbo German model, batched |
+| 50× | 1 | 51× | 21.6 % | `large-v3`, batched |
+| 20× | 1 | 20× | 21.3 % | `large-v3`, one pass in order |
+| 14× | 2 | 15× | 20.8 % | + a batched pass, voted |
+| **10× ★** | 3 | 11× | **20.4 %** | + a second *model*, voted |
+| 5× | 5 | 5.4× | 20.5 % | five passes, two models |
+| 2× | 7 | 2.7× | 20.6 % | seven passes — slower and no better |
+| 1× | 9 | 2.1× | 20.6 % | nine passes — slowest, and still no better |
+
+**The ladder stops paying at three passes.** Everything below the ★ costs more time for the same
+error rate or slightly worse: a 1× run of the benchmark interview takes 31 minutes against about
+6 for the recommended setting and lands 0.2 pp behind it. Each pass after the second model is a
+re-filtered or re-beamed run of a model that has already voted, so it repeats that model's
+mistakes, and repeated mistakes win majorities. The slow rungs are kept because the ladder has to
+end somewhere, not because they are better.
+
+### How the slow half works, and why the fast half doesn't just do it
+
+Below 20× the audio is transcribed **several times with different settings, and every word is
+decided by majority vote** (`sinribe/rover.py`). Passes that chunk the audio differently mishear
+*different* words, so where two agree against a third the majority is usually right. That takes
+21.3 % down to 20.4 %, and no further.
+
+The single biggest step is adding a **different model** (20.8 % → 20.4 %), not re-running the same
+one with different chunking. Two models trained differently make different mistakes; one model
+re-segmented mostly makes the same ones.
+
+What does *not* work is simply searching harder. A beam of 20 costs 5.6× the compute and returns
+21.6 % — worse than the default. Beam search explores one model's own hypotheses, so it only
+rescues an answer the model already had; here the model's probabilities are themselves wrong about
+whether it heard *das* or *es*, and searching a wrong distribution harder returns the same wrong
+answer at five times the price.
+
+Returns flatten at five passes and turn back up past nine, as weaker decodes start outvoting
+better ones. The slowest positions are kept so you can confirm that on your own recordings; the
+★ sits where the curve bends.
+
+Timings assume speaker diarization is cached, which is what a re-run costs; a first pass over a new
+file adds roughly two minutes for that. They came off one machine on one day — the app replaces
+them with what your own hardware actually does, after your first run at each setting.
+
+### Names & terms — worth trying, not a cure
+
+Whisper mangles proper nouns it has no reason to predict. In one interview *Fujitsu* came back as
+"fiuzi", "jitze" and "future service" — never once correctly — while *VR-Bank* became "Feuerbank".
+Listing the expected names here biases the recogniser's vocabulary:
+
+```
+Fujitsu, Siemens, VR-Bank, Ramada, Dr. Mühlbauer
+```
+
+Measured on that interview it is a weak lever. A name the recogniser was already nearly getting
+("Dieter", right once out of three) came good; *Fujitsu* and *VR-Bank* did not move at all, and
+overall WER rose slightly, 21.3 % → 22.3 %. A vocabulary hint is no match for a word the model
+confidently mis-hears. Try it, then check whether it earned its place — `sinribe-eval` will say.
+
+### The German models are optional, and not automatically better
+
+`large-v3-german` and `large-v3-turbo-german` are fine-tuned on German alone, where vanilla
+`large-v3` is multilingual. That sounds like a straight upgrade and is not one: on a hard
+far-field Bavarian interview the German fine-tune scored **24.8 % WER against large-v3's 21.3 %**,
+with more substitutions *and* more invented words. Its published numbers come from read speech,
+and the narrower training appears to cost large-v3's robustness on spontaneous, distant, accented
+audio.
+
+They are worth trying on clean, close-miked German — and `sinribe-eval` will tell you, which is
+the point. Install them with:
+
+```bash
+tools/convert_german_models.sh          # both, ~4.7 GB
+tools/convert_german_models.sh turbo    # just the fast one, ~1.6 GB
+```
+
+The upstream models ship in transformers format, so this converts them to CTranslate2. It runs in
+a throwaway virtualenv on purpose — see `HANDOFF.md` for why nothing may install torch into
+`.venv`.
+
+## Measuring accuracy
+
+Transcription settings are easy to argue about and easy to measure, so Sinribe ships the scorer:
+
+```bash
+./sinribe-eval reference.docx transcript.md
+```
+
+It aligns the two word by word and reports WER, per-speaker accuracy, how the error rate moves
+over the recording, speaker-attribution accuracy, and the most frequent confusions. The reference
+can be `.docx`, `.odt`, `.md`, `.txt`, `.srt` or `.vtt`; timestamps that restart part-way through
+(a document stitched from two recordings) are handled, and `(unverständlich)` markers are dropped
+rather than counted against the recogniser. German spelling variants — `softskills`/`soft skills`,
+`gernhabt`/`gern habt` — score as correct, because they are.
+
+To compare settings instead of grading one run:
+
+```bash
+./sinribe-eval --sweep variants.json audio.wav reference.docx -o results.json
+```
+
+Each variant re-decodes the audio and is scored; the decoded audio and the diarization are shared
+between variants, so only the recognition pass is repeated.
+
+And to answer "is more tuning worth it?" rather than "which of these is best?":
+
+```bash
+./sinribe-eval --ceiling ~/.cache/sinribe/sweep reference.docx
+```
+
+That scores every transcript it finds and reports what a *perfect* choice between them would
+score. The gap to the best single configuration is the entire prize available to any cleverer
+scheme; the words none of them get right are the floor. On the benchmark interview the floor is
+8.7 % of all words — fast, broad-dialect, far-field speech that no setting reaches — which is how
+two-model consensus decoding got cancelled before it was built.
 
 Downloaded podcasts are large and are kept indefinitely by default. To reclaim space, either
 delete `~/.cache/sinribe/downloads/` or set `"keep_downloads": false`.
