@@ -818,7 +818,8 @@ class Runner:
         markdown.write(md_path, markdown.render(turns, stats, result,
                                                 title=result["title"], enrichment=enrichment,
                                                 review=bool(self.cfg.get("review_section", True)),
-                                                review_max=int(self.cfg.get("review_max_spans", 0))))
+                                                review_max=int(
+                                                    self.cfg.get("review_max_spans", 0))))
         written = [md_path]
 
         payload = sidecar.build(turns, stats, result, diar_turns=diar_turns,
