@@ -383,7 +383,7 @@ class TestVotingProgress:
         vals = [f for f, _, _ in seen]
         # Tolerance because consecutive passes meet at a boundary both of them compute, and the
         # two roundings can differ in the last bit. The bar is a permille integer; this is noise.
-        assert all(b >= a - 1e-9 for a, b in zip(vals, vals[1:]))
+        assert all(b >= a - 1e-9 for a, b in zip(vals, vals[1:], strict=False))
         assert vals[0] == pytest.approx(0.3)
         assert vals[-1] == pytest.approx(0.9)
 
