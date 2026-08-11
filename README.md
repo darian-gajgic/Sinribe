@@ -155,6 +155,24 @@ ground-truth spans correctly attributed, and identity stayed stable across the f
 (the same person is still Person 1 at 03:59 as at 00:00), which is the part that actually gets
 hard at length.
 
+## Accuracy
+
+A 66-minute German interview, transcribed by Sinribe, by [Vibe](https://github.com/thewh1teagle/vibe),
+and by stock `faster-whisper large-v3`, then scored word-by-word against a human transcript:
+
+| | Sinribe | Claude (large-v3) | Vibe |
+|---|---|---|---|
+| Word error rate | **18.84%** | 20.17% | 20.51% |
+| Meaning-changing errors | **7.46%** | 8.10% | 8.20% |
+| Median timestamp error | **1.3 s** | 2.0 s | 14.0 s |
+| Speaker attribution | **99.60%** | — | — |
+
+Sinribe leads on every axis measured. Speaker attribution is scored against a 90.12% majority-class
+baseline, and holds 97.7% recall on the interviewer even though they speak only 11% of the hour.
+
+**[Full report, method and caveats →](https://darian-gajgic.github.io/Sinribe/benchmark/)** ·
+[source and scoring code](docs/benchmark/)
+
 ## Resuming and re-exporting
 
 Each job caches its decoded audio, diarization and transcription under
