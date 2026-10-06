@@ -6,7 +6,7 @@ analysis, ground-truth spot checks)
 One 66-minute German coaching interview, transcribed three ways and scored word-by-word against a
 human transcript. Same audio, same reference, same scoring code for every system.
 
-| | Sinribe | Claude (large-v3) | Vibe |
+| | Sinribe | Stock large-v3 | Vibe |
 |---|---|---|---|
 | Word error rate | **18.84%** | 20.17% | 20.51% |
 | Meaning-changing errors | **7.46%** (684) | 8.10% (743) | 8.20% (752) |
@@ -21,8 +21,8 @@ Sinribe leads on every axis measured.
 
 - **Sinribe** — `large-v3` · CUDA float16 · diarization `speaker-diarization-community-1` · 3-pass vote.
 - **Vibe** — transcript as supplied by the tool.
-- **Claude (large-v3)** — a neutral baseline transcribed by Claude for this benchmark using stock
-  `faster-whisper large-v3`, float16 on an RTX 5070 Ti, beam 5, VAD on, language forced to German.
+- **Stock large-v3**: a neutral baseline. Stock `faster-whisper large-v3`, run for this benchmark by
+  Claude Code (an AI coding agent), float16 on an RTX 5070 Ti, beam 5, VAD on, language forced to German.
   Single pass, no diarization, no post-processing. 65 min of audio in 139 s (28× realtime).
 - **Reference** — a human-written transcript, 9,174 words after normalisation.
 
