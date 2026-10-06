@@ -1,7 +1,7 @@
 """Optional LLM enrichment: chapter titles + summary, via the Ollama already on this box.
 
 Fully offline — talks to the user-level Ollama on 127.0.0.1:11435 (gemma3:4b), the same instance
-Sinlate uses. Raw urllib, no SDK, copying the call shape from /home/sinep/Sinlate/engine.py:147.
+Sinlate uses. Raw urllib, no SDK, copying the call shape from Sinlate/engine.py:147.
 
 Everything here is best-effort: if Ollama is down, the model is missing, or a response is
 unparseable, enrichment returns empty and the transcript is written without it. A 4-hour job must

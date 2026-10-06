@@ -3,7 +3,8 @@ Type=Application
 Name=Sinribe
 GenericName=Audio Transcription
 Comment=Offline transcription with speaker labels
-Exec=/home/sinep/Sinribe/sinribe
+# install.sh rewrites Exec to the absolute path of sinribe-run.
+Exec=sinribe-run
 Icon=audio-input-microphone
 Terminal=false
 Categories=AudioVideo;Audio;
