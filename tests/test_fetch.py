@@ -19,7 +19,7 @@ class TestIsUrl:
         assert is_url("  https://youtu.be/abc  \n")
 
     def test_rejects_non_urls(self):
-        for bad in ("", None, "not a url", "/home/sinep/a.mp3", "www.youtube.com/watch?v=a",
+        for bad in ("", None, "not a url", "/home/user/a.mp3", "www.youtube.com/watch?v=a",
                     "ftp://example.com/x.mp3"):
             assert not is_url(bad)
 

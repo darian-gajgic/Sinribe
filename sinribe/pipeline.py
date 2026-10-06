@@ -152,7 +152,7 @@ def pick_asr_tier(free_mib: int) -> int:
 def _asr_env() -> dict:
     """ctranslate2 does NOT auto-discover the pip CUDA wheels: without these on the loader path
     the model constructs fine and then throws 'libcublas.so.12 is not found' on first encode.
-    (Same shim as /home/sinep/local-wisprflow/wf-run:10.)"""
+    (Same shim as local-wisprflow/wf-run:10.)"""
     env = dict(os.environ)
     sp = PROJECT_ROOT / ".venv" / "lib" / "python3.12" / "site-packages"
     parts = [str(sp / "nvidia" / "cublas" / "lib"), str(sp / "nvidia" / "cudnn" / "lib")]

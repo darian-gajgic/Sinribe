@@ -1,6 +1,6 @@
 """Dark-glass Qt theme for Sinribe.
 
-The palette constants are lifted verbatim from /home/sinep/Sinlate/theme.py:17-32 so Sinribe,
+The palette constants are lifted verbatim from Sinlate/theme.py:17-32 so Sinribe,
 Sinlate and the wisprflow overlay read as one family of tools against the Win7-Aero desktop.
 Only the delivery mechanism differs: Sinlate hand-rolls ttk styles, here it becomes QSS.
 """
