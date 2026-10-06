@@ -8,7 +8,7 @@ from score import align, word_times, SUB, DEL, INS, MATCH
 from classify import classify_sub, classify_indel
 
 SYSTEMS = ["sinribe", "vibe", "claude"]
-LABEL = {"sinribe": "Sinribe", "vibe": "Vibe", "claude": "Claude (large-v3)"}
+LABEL = {"sinribe": "Sinribe", "vibe": "Vibe", "claude": "Stock large-v3"}
 
 data, notes = load_all()
 ref_wt = word_times(data["manual"])
