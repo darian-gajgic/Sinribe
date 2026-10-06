@@ -24,7 +24,7 @@ For `vorlesung.m4a` you get `vorlesung.md`, plus optionally `vorlesung.sinribe.j
 
 **Duration** 2:14:33 · **Speakers** 3 · **Language** de (0.98)
 **Model** large-v3 · CUDA · float16 · **Diarization** speaker-diarization-community-1
-**Source** `/home/sinep/Recordings/vorlesung.m4a`
+**Source** `~/Recordings/vorlesung.m4a`
 **Transcribed** 2026-07-26 18:03 · 14m 21s (9.4× realtime)
 
 | Speaker | Talk time | Share |
@@ -160,12 +160,16 @@ hard at length.
 A 66-minute German interview, transcribed by Sinribe, by [Vibe](https://github.com/thewh1teagle/vibe),
 and by stock `faster-whisper large-v3`, then scored word-by-word against a human transcript:
 
-| | Sinribe | Claude (large-v3) | Vibe |
+| | Sinribe | Stock large-v3 | Vibe |
 |---|---|---|---|
 | Word error rate | **18.84%** | 20.17% | 20.51% |
 | Meaning-changing errors | **7.46%** | 8.10% | 8.20% |
 | Median timestamp error | **1.3 s** | 2.0 s | 14.0 s |
 | Speaker attribution | **99.60%** | — | — |
+
+The stock large-v3 baseline is plain `faster-whisper large-v3` with no diarization, run for this
+benchmark by Claude Code (an AI coding agent). Sinribe uses the same base model, so the gap measures
+its pipeline, not a better model.
 
 Sinribe leads on every axis measured. Speaker attribution is scored against a 90.12% majority-class
 baseline, and holds 97.7% recall on the interviewer even though they speak only 11% of the hour.
