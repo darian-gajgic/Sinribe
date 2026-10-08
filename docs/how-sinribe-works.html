@@ -1,0 +1,1840 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Inside Sinribe</title>
+<meta name="description" content="How Sinribe turns a recording or a link into a speaker-labelled transcript and a fact-checked brief, explained at four levels of detail, with the reason behind each design choice.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Schibsted+Grotesk:wght@600;700;800&display=swap">
+<style>
+/* Layout: a zoom. Four levels in one reading column (about 70ch), each deeper than the last, with
+   diagrams breaking out to the full 1080px frame. Amber always means "talks to the network",
+   indigo "runs on the GPU", teal "the part this figure is about". */
+:root{
+  --bg:#f3f5f6; --surface:#ffffff; --surface-2:#e7ecef; --ink:#13202a; --muted:#566773;
+  --line:#d3dce2; --line-strong:#8b9ba7;
+  --accent:#0b6e8a; --accent-soft:#dff0f5;
+  --net:#a65705; --net-soft:#fcecd8;
+  --gpu:#3c4ea6; --gpu-soft:#e5e8f7;
+  --ok:#1d7a42; --ok-soft:#e1f2e7;
+  --bad:#b3262d; --bad-soft:#fae4e4;
+  --p1:#0b6e8a; --p1-soft:#d9eef4; --p2:#8a3fb0; --p2-soft:#f1e5f8;
+  --k-forecast:#2563eb; --k-why:#6d28d9; --k-now:#a16207; --k-risk:#b91c1c; --k-impact:#5b6575; --k-q:#1a2130;
+  --f-display:"Schibsted Grotesk","Helvetica Neue",Arial,sans-serif;
+  --f-body:"IBM Plex Sans","Segoe UI",system-ui,-apple-system,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e1419; --surface:#162029; --surface-2:#1f2a34; --ink:#e2e9ee; --muted:#93a3b0;
+    --line:#2a3743; --line-strong:#5f717e;
+    --accent:#5cc2de; --accent-soft:#11303a;
+    --net:#f0a24a; --net-soft:#35250f;
+    --gpu:#9eaaf2; --gpu-soft:#1d2240;
+    --ok:#6fd394; --ok-soft:#13281b;
+    --bad:#f08a8f; --bad-soft:#341a1d;
+    --p1:#5cc2de; --p1-soft:#123540; --p2:#d29bf0; --p2-soft:#2e1d3a;
+    --k-forecast:#7aa2ff; --k-why:#b79df5; --k-now:#e3c26b; --k-risk:#f0868a; --k-impact:#9aa4b5; --k-q:#e8ecf3;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e1419; --surface:#162029; --surface-2:#1f2a34; --ink:#e2e9ee; --muted:#93a3b0;
+  --line:#2a3743; --line-strong:#5f717e;
+  --accent:#5cc2de; --accent-soft:#11303a;
+  --net:#f0a24a; --net-soft:#35250f;
+  --gpu:#9eaaf2; --gpu-soft:#1d2240;
+  --ok:#6fd394; --ok-soft:#13281b;
+  --bad:#f08a8f; --bad-soft:#341a1d;
+  --p1:#5cc2de; --p1-soft:#123540; --p2:#d29bf0; --p2-soft:#2e1d3a;
+  --k-forecast:#7aa2ff; --k-why:#b79df5; --k-now:#e3c26b; --k-risk:#f0868a; --k-impact:#9aa4b5; --k-q:#e8ecf3;
+  color-scheme:dark;
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.62 var(--f-body);
+  -webkit-text-size-adjust:100%}
+.wrap{max-width:1080px;margin:0 auto;padding-inline:20px;padding-block:48px 72px}
+.prose{max-width:70ch}
+a{color:var(--accent);text-underline-offset:2px}
+a:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+h1,h2,h3,h4{font-family:var(--f-display);text-wrap:balance;line-height:1.15;margin:0}
+h1{font-size:clamp(2.6rem,7vw,4.4rem);font-weight:800;letter-spacing:-.03em}
+h2{font-size:clamp(1.8rem,3.6vw,2.4rem);font-weight:800;letter-spacing:-.015em}
+h3{font-size:1.12rem;font-weight:700;margin-top:28px}
+h4{font-size:1.02rem;font-weight:700}
+p{margin:0}
+.prose > * + *{margin-top:14px}
+code{font-family:var(--f-mono);font-size:.86em;background:var(--surface-2);padding:1px 5px;border-radius:4px;
+  overflow-wrap:anywhere}
+pre{font-family:var(--f-mono);font-size:.84rem;line-height:1.55;background:var(--surface);border:1px solid var(--line);
+  border-radius:8px;padding:14px 16px;overflow-x:auto;margin:0}
+pre code{background:none;padding:0;font-size:inherit}
+strong{font-weight:600}
+ul,ol{padding-left:22px;margin:0}
+li + li{margin-top:6px}
+
+/* header */
+.eyebrow{font-family:var(--f-mono);font-size:.78rem;color:var(--muted);letter-spacing:.02em}
+header .eyebrow{margin-bottom:14px}
+.lede{font-size:1.22rem;line-height:1.5;color:var(--ink);max-width:58ch;margin-top:20px}
+.sublede{font-size:.98rem;color:var(--muted);max-width:66ch;margin-top:12px}
+
+/* the depth ladder: the page's table of contents, indented one step per level */
+.ladder{list-style:none;padding:0;margin:34px 0 0;border-top:1px solid var(--line)}
+.ladder li{margin:0;border-bottom:1px solid var(--line)}
+.ladder a{display:grid;grid-template-columns:2.6rem minmax(0,1fr) auto;gap:4px 18px;align-items:center;
+  padding-block:14px;padding-right:4px;padding-left:calc(var(--d,0) * 2.2rem);text-decoration:none;color:var(--ink)}
+.ladder a:hover b{color:var(--accent)}
+.ladder .ln{font-family:var(--f-display);font-weight:800;font-size:2rem;line-height:1;color:var(--accent);
+  font-variant-numeric:tabular-nums}
+.ladder b{display:block;font-family:var(--f-display);font-size:1.14rem;font-weight:700}
+.ladder .lt span{display:block;font-size:.9rem;color:var(--muted)}
+.ladder .lf{display:flex;flex-direction:column;align-items:flex-end;gap:6px;font-family:var(--f-mono);
+  font-size:.72rem;color:var(--muted);white-space:nowrap}
+.meter{display:flex;gap:3px}
+.meter i{width:14px;height:5px;border-radius:2px;background:var(--line)}
+.meter i.on{background:var(--accent)}
+.also{display:flex;flex-wrap:wrap;gap:6px 20px;margin-top:14px;font-size:.93rem}
+.also a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line-strong)}
+.also a:hover{color:var(--accent);border-color:var(--accent)}
+.legend{display:flex;flex-wrap:wrap;gap:8px 20px;margin-top:22px;font-size:.84rem;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:8px}
+.sw{width:22px;height:12px;border-radius:3px;border:1.5px solid var(--line-strong);background:var(--surface);flex:none}
+.sw.net{border-color:var(--net);background:var(--net-soft)}
+.sw.gpu{border-color:var(--gpu);background:var(--gpu-soft)}
+.sw.opt{border-style:dashed}
+.sw.bad{border-color:var(--bad);background:var(--bad-soft)}
+.sw.ok{border-color:var(--ok);background:var(--ok-soft)}
+.sw.key{border-color:var(--accent);background:var(--accent-soft)}
+.meta-line{margin-top:14px;font-size:.84rem;color:var(--muted)}
+
+/* levels */
+.level{margin-top:96px;scroll-margin-top:16px}
+.level-head{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:4px 20px;align-items:end;
+  padding-bottom:16px;border-bottom:2px solid var(--ink)}
+.level-num{font-family:var(--f-display);font-weight:800;font-size:clamp(3.4rem,9vw,5.6rem);line-height:.78;
+  color:var(--accent);font-variant-numeric:tabular-nums}
+.level-head .eyebrow{display:block;margin-bottom:6px}
+.level-head .meter{margin-bottom:6px}
+.level-intro{margin-top:20px;font-size:1.06rem}
+.part{margin-top:64px;scroll-margin-top:16px}
+.part > .eyebrow{display:block;margin-bottom:6px}
+.part > h3{font-size:1.5rem;font-weight:800;letter-spacing:-.01em;margin-top:0}
+.part > h3 + .prose{margin-top:14px}
+section.extra{margin-top:96px;scroll-margin-top:16px}
+section.extra > .eyebrow{display:block;margin-bottom:8px}
+section.extra > h2 + .prose{margin-top:16px}
+
+/* figures */
+figure{margin:28px 0 0}
+.fig-scroll{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 12px}
+.fig-scroll svg{display:block;width:100%;height:auto;min-width:760px}
+figcaption{font-size:.9rem;color:var(--muted);margin-top:10px;max-width:76ch}
+figcaption b{color:var(--ink);font-weight:600}
+
+/* svg vocabulary */
+.dia text{font-family:var(--f-body);fill:var(--ink);font-size:13px}
+.dia .t{font-weight:600;text-anchor:middle}
+.dia .tl{font-weight:600}
+.dia .s{fill:var(--muted);font-size:11px;text-anchor:middle}
+.dia .m{font-family:var(--f-mono);fill:var(--muted);font-size:10.5px;text-anchor:middle}
+.dia .ml{font-family:var(--f-mono);fill:var(--muted);font-size:10.5px}
+.dia .tm{font-family:var(--f-mono);font-weight:500;font-size:12px;text-anchor:middle}
+.dia .lab{fill:var(--muted);font-size:10.5px}
+.dia .labm{font-family:var(--f-mono);fill:var(--muted);font-size:10.5px}
+.dia .cap{fill:var(--muted);font-size:10px;font-weight:600;letter-spacing:.09em}
+.dia .rl{font-size:12px;font-weight:600}
+.dia .wd{font-size:13px;text-anchor:middle}
+.dia .num{font-family:var(--f-mono);font-size:10.5px;fill:var(--muted)}
+.dia .c{text-anchor:middle}
+.dia .end{text-anchor:end}
+.dia .e-txt{fill:var(--bad)}
+.dia .ok-txt{fill:var(--ok);font-weight:600}
+.dia .bad-txt{fill:var(--bad);font-weight:600}
+.dia .acc-txt{fill:var(--accent);font-weight:600}
+.dia .p1-txt{fill:var(--p1);font-weight:600;font-size:11px}
+.dia .p2-txt{fill:var(--p2);font-weight:600;font-size:11px}
+.dia .tag{font-family:var(--f-mono);font-size:11px;font-weight:600;fill:var(--ink)}
+.dia .desc{font-size:12px;fill:var(--muted)}
+.dia .n{fill:var(--surface);stroke:var(--line-strong);stroke-width:1.2}
+.dia .n-net{fill:var(--net-soft);stroke:var(--net)}
+.dia .n-gpu{fill:var(--gpu-soft);stroke:var(--gpu)}
+.dia .n-key{fill:var(--accent-soft);stroke:var(--accent)}
+.dia .n-ok{fill:var(--ok-soft);stroke:var(--ok)}
+.dia .n-bad{fill:var(--bad-soft);stroke:var(--bad)}
+.dia .n-opt{stroke-dasharray:5 4}
+.dia .sp1{fill:var(--p1-soft);stroke:var(--p1);stroke-width:1.2}
+.dia .sp2{fill:var(--p2-soft);stroke:var(--p2);stroke-width:1.2}
+.dia .sp1f{fill:var(--p1)}
+.dia .sp2f{fill:var(--p2)}
+.dia .wrong{fill:none;stroke:var(--bad);stroke-width:2.2}
+.dia .strike{stroke:var(--bad);stroke-width:1.6}
+.dia .pill{fill:var(--surface-2);stroke:var(--line);stroke-width:1}
+.dia .band-net{fill:var(--net-soft);opacity:.5}
+.dia .band-gpu{fill:var(--gpu-soft);opacity:.6}
+.dia .band-loc{fill:var(--surface-2);opacity:.55}
+.dia .bar{fill:var(--surface-2);stroke:var(--line-strong);stroke-width:1}
+.dia .bar-net{fill:var(--net-soft);stroke:var(--net);stroke-width:1}
+.dia .e{stroke:var(--muted);stroke-width:1.4;fill:none}
+.dia .e-net{stroke:var(--net)}
+.dia .e-bad{stroke:var(--bad)}
+.dia .e-ok{stroke:var(--ok)}
+.dia .e-acc{stroke:var(--accent)}
+.dia .e-gpu{stroke:var(--gpu)}
+.dia .dash{stroke-dasharray:5 4}
+.dia .fw{stroke:var(--accent);stroke-width:1.6;stroke-dasharray:2 5;fill:none}
+.dia .lead{stroke:var(--line-strong);stroke-width:1;fill:none}
+.dia .grid{stroke:var(--line);stroke-width:1}
+.dia .axis{stroke:var(--line-strong);stroke-width:1}
+.dia .curve{stroke:var(--accent);stroke-width:2;fill:none}
+.dia .dot{fill:var(--accent);stroke:var(--surface);stroke-width:2}
+.dia .dot-bad{fill:var(--bad);stroke:var(--surface);stroke-width:2}
+.dia .hollow{fill:var(--surface);stroke:var(--line-strong);stroke-width:1.4;stroke-dasharray:3 2}
+.dia .ah{fill:var(--muted)}
+.dia .ah-net{fill:var(--net)}
+.dia .ah-bad{fill:var(--bad)}
+.dia .ah-ok{fill:var(--ok)}
+.dia .ah-acc{fill:var(--accent)}
+.dia .ah-gpu{fill:var(--gpu)}
+.dia a{cursor:pointer}
+.dia a:hover .n,.dia a:focus-visible .n{stroke:var(--accent);stroke-width:2}
+.dia a:focus{outline:none}
+/* page wireframe */
+.dia .wf-rail{fill:var(--surface-2)}
+.dia .wf-line{fill:var(--line)}
+.dia .wf-ink{fill:var(--line-strong)}
+.dia .wf-acc{fill:var(--accent)}
+.dia .wf-tile{fill:var(--surface);stroke:var(--line);stroke-width:1}
+.dia .wf-head{fill:var(--surface-2)}
+.dia .wf-grid{stroke:var(--line);stroke-width:1}
+.dia .wf-quote{fill:var(--accent-soft)}
+.dia .wf-reco{fill:var(--ok-soft);stroke:var(--ok);stroke-width:1}
+.dia .wf-ok{fill:var(--ok)}
+.dia .wf-fade{opacity:.45}
+.dia .wf-warn{fill:var(--net-soft);stroke:var(--net);stroke-width:1}
+.dia .wf-num{font-family:var(--f-mono);font-size:12px;font-weight:600;fill:var(--accent)}
+.dia .k-forecast{fill:var(--k-forecast)} .dia .k-why{fill:var(--k-why)} .dia .k-now{fill:var(--k-now)}
+.dia .k-risk{fill:var(--k-risk)} .dia .k-impact{fill:var(--k-impact)} .dia .k-q{fill:var(--k-q)}
+
+/* capability tiles */
+.caps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;margin-top:22px;
+  background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.caps div{background:var(--surface);padding:16px 16px 18px}
+.caps b{display:block;font-family:var(--f-display);font-size:1.75rem;font-weight:800;letter-spacing:-.015em;
+  line-height:1.1;font-variant-numeric:tabular-nums}
+.caps strong{display:block;font-size:.95rem;margin-top:6px}
+.caps span{display:block;font-size:.85rem;color:var(--muted);margin-top:4px;line-height:1.5}
+
+/* why notes, placed after the figure they explain */
+.why{display:grid;grid-template-columns:4.2rem minmax(0,1fr);gap:4px 14px;margin-top:22px;max-width:78ch}
+.why > span{font-family:var(--f-mono);font-size:.72rem;font-weight:600;letter-spacing:.08em;color:var(--accent);
+  padding-top:4px}
+.why > div > * + *{margin-top:10px}
+
+/* two rules side by side */
+.pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:24px}
+.pair div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px}
+.pair h4{margin-bottom:6px}
+.pair p{font-size:.93rem}
+
+/* horizontal bars drawn to scale */
+.hbars{margin-top:22px;max-width:640px;display:grid;gap:8px}
+.hbars .t{font-size:.86rem;color:var(--muted);margin-bottom:4px}
+.hb{display:grid;grid-template-columns:11.5rem minmax(0,1fr) 2.2rem;gap:12px;align-items:center;font-size:.88rem}
+.hb .track{height:14px;background:var(--surface-2);border-radius:3px;overflow:hidden}
+.hb .track i{display:block;height:100%;background:var(--line-strong)}
+.hb.best .track i{background:var(--accent)}
+.hb b{font-family:var(--f-mono);font-size:.86rem;font-weight:600;text-align:right;font-variant-numeric:tabular-nums}
+
+/* tables */
+.tbl{overflow-x:auto;margin-top:22px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:.88rem;line-height:1.5}
+th,td{text-align:left;vertical-align:top;padding:10px 12px;border-bottom:1px solid var(--line)}
+th{font-weight:600;font-size:.76rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);
+  background:var(--surface-2);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td:first-child{font-weight:600;white-space:nowrap}
+td.num{font-variant-numeric:tabular-nums;font-family:var(--f-mono);font-size:.84rem;white-space:nowrap}
+.tbl.wide table{min-width:860px}
+
+/* cache tree */
+.tree{margin-top:22px;border:1px solid var(--line);border-radius:10px;background:var(--surface);overflow-x:auto}
+.tree .r{display:grid;grid-template-columns:minmax(17rem,auto) minmax(14rem,1fr);gap:4px 18px;padding:9px 16px;
+  border-bottom:1px solid var(--line);font-size:.87rem;min-width:620px}
+.tree .r:last-child{border-bottom:0}
+.tree .r code{background:none;padding:0;font-size:.84rem;white-space:nowrap}
+.tree .r.d0 > code{font-weight:600}
+.tree .r.d1 > code{padding-left:1.4rem}
+.tree .r.d2 > code{padding-left:2.8rem}
+.tree .r.d1 > code::before,.tree .r.d2 > code::before{content:"└ ";color:var(--line-strong)}
+.tree .r span{color:var(--muted)}
+
+/* sample transcript */
+.sample{margin-top:22px}
+.sample pre .ts{color:var(--accent)}
+.sample pre .sp{color:var(--muted)}
+
+/* gaps */
+.gaps{list-style:none;padding:0;margin-top:22px;display:grid;gap:12px}
+.gaps li{margin:0;background:var(--surface);border:1px solid var(--bad);border-radius:10px;padding:14px 16px}
+.chip{display:inline-block;font-family:var(--f-mono);font-size:.7rem;font-weight:600;letter-spacing:.05em;
+  border-radius:4px;padding:1px 7px;margin-bottom:8px}
+.gaps .chip{color:var(--bad);background:var(--bad-soft)}
+.gaps p + p{margin-top:8px}
+
+/* decisions */
+.decisions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:26px}
+.decisions article{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px 18px}
+.decisions h4{margin-bottom:8px}
+.decisions p{font-size:.92rem}
+.decisions p + p{margin-top:8px}
+.decisions .instead{color:var(--muted)}
+.chip.forced{color:var(--ink);background:var(--surface-2)}
+.chip.measured{color:var(--accent);background:var(--accent-soft)}
+.chip.observed{color:var(--net);background:var(--net-soft)}
+.chip.policy{color:var(--p2);background:var(--p2-soft)}
+.chips-key{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:16px;font-size:.88rem;color:var(--muted)}
+.chips-key .chip{margin:0 6px 0 0}
+
+/* numbers row */
+.figs{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1px;margin-top:22px;
+  background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.figs div{background:var(--surface);padding:12px 14px}
+.figs b{display:block;font-family:var(--f-display);font-size:1.45rem;font-weight:700;font-variant-numeric:tabular-nums}
+.figs span{font-size:.82rem;color:var(--muted)}
+
+footer.page{margin-top:80px;padding-top:18px;border-top:1px solid var(--line);font-size:.84rem;color:var(--muted)}
+
+@media (max-width:860px){
+  .caps{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .decisions,.pair{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:600px){
+  .wrap{padding-block:28px 48px}
+  .level,section.extra{margin-top:72px}
+  .part{margin-top:52px}
+  .lede{font-size:1.08rem}
+  .ladder a{padding-left:calc(var(--d,0) * .7rem);grid-template-columns:2rem minmax(0,1fr);gap:4px 12px}
+  .ladder .lf{grid-column:2;align-items:flex-start}
+  .level-head{grid-template-columns:auto minmax(0,1fr)}
+  .level-head .meter{display:none}
+  .why{grid-template-columns:minmax(0,1fr)}
+  .hb{grid-template-columns:8rem minmax(0,1fr) 2rem}
+}
+@media (max-width:460px){
+  .caps{grid-template-columns:minmax(0,1fr)}
+}
+@media (prefers-reduced-motion: reduce){html{scroll-behavior:auto}}
+html{scroll-behavior:smooth}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <p class="eyebrow">Sinribe · how it is built · for programmers</p>
+  <h1>Inside Sinribe</h1>
+  <p class="lede">Sinribe turns a recording, or a link to one, into a transcript that knows who said each sentence. If you ask, it also writes a brief that teaches the recording in minutes and checks its claims against today's web.</p>
+  <p class="sublede">This page explains it four times, each time closer. Stop at the depth you need: level 1 tells you what it does, level 2 lets you follow one job, level 3 is for changing a stage, and level 4 is for debugging one. The reasons behind the design are collected at the end.</p>
+
+  <ol class="ladder" aria-label="Levels of detail">
+    <li><a href="#l1" style="--d:0"><span class="ln">1</span><span class="lt"><b>What it does</b><span>One picture: what goes in, what comes out, and what it can do, measured.</span></span><span class="lf">1 figure<span class="meter" aria-hidden="true"><i class="on"></i><i></i><i></i><i></i></span></span></a></li>
+    <li><a href="#l2" style="--d:1"><span class="ln">2</span><span class="lt"><b>How one job flows</b><span>Ten stages across network, GPU and CPU, and the line that protects the transcript.</span></span><span class="lf">1 figure, 1 table<span class="meter" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i><i></i></span></span></a></li>
+    <li><a href="#l3" style="--d:2"><span class="ln">3</span><span class="lt"><b>How each part works</b><span>Download, speakers, words, the brief, the web check and the page, each mechanism drawn out.</span></span><span class="lf">7 figures<span class="meter" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span></span></a></li>
+    <li><a href="#l4" style="--d:3"><span class="ln">4</span><span class="lt"><b>The machinery</b><span>Processes, files on disk, data between stages, the fenced-in Claude calls, failures and cost.</span></span><span class="lf">4 figures<span class="meter" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span></span></a></li>
+  </ol>
+  <p class="also">Then: <a href="#why">Why it is built like this</a> <a href="#map">Where to change what</a></p>
+
+  <div class="legend" aria-label="Diagram key">
+    <span><i class="sw net"></i>talks to the network</span>
+    <span><i class="sw gpu"></i>runs on the GPU</span>
+    <span><i class="sw"></i>runs on this machine</span>
+    <span><i class="sw opt"></i>only in some cases</span>
+    <span><i class="sw key"></i>the part in focus</span>
+    <span><i class="sw bad"></i>error, dropped or downgraded</span>
+    <span><i class="sw ok"></i>kept</span>
+  </div>
+  <p class="meta-line">Describes <code>feat/offline-transcription-with-diarization</code> at commit <code>444ce59</code>, 8 October 2026. Measurements are from this laptop (RTX 5070 Ti, 12 GB) on real recordings.</p>
+</header>
+
+<!-- ================================================================ LEVEL 1 -->
+<section class="level" id="l1">
+  <div class="level-head">
+    <span class="level-num">1</span>
+    <div><span class="eyebrow">Level 1 of 4 · from the outside</span><h2>What it does</h2></div>
+    <span class="meter" aria-hidden="true"><i class="on"></i><i></i><i></i><i></i></span>
+  </div>
+  <div class="prose level-intro">
+    <p>No internals yet. Two kinds of input, one machine doing the work, four kinds of output.</p>
+  </div>
+
+  <figure>
+    <div class="fig-scroll">
+      <svg class="dia" viewBox="0 0 1000 330" role="img" aria-label="Sinribe from the outside. You give it a link or a recording. It hears every word and tells the voices apart on the GPU, and can optionally explain and check the recording using Claude or a local model. You get a Markdown transcript, subtitles, a JSON file with every word's timing, and optionally a brief as a web page.">
+        <defs>
+          <marker id="w-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+          <marker id="w-ahn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-net" d="M0,0 L10,5 L0,10 z"/></marker>
+        </defs>
+        <text class="cap" x="16" y="26">YOU GIVE IT</text>
+        <text class="cap" x="300" y="26">SINRIBE</text>
+        <text class="cap" x="764" y="26">YOU GET</text>
+
+        <rect class="n n-net" x="16" y="56" width="220" height="80" rx="8"/>
+        <text class="t" x="126" y="86">a link</text>
+        <text class="s" x="126" y="106">YouTube, a podcast page, any</text>
+        <text class="s" x="126" y="121">site yt-dlp can read</text>
+
+        <rect class="n" x="16" y="186" width="220" height="80" rx="8"/>
+        <text class="t" x="126" y="216">a recording</text>
+        <text class="s" x="126" y="236">an audio or video file,</text>
+        <text class="s" x="126" y="251">anything ffmpeg can open</text>
+
+        <rect class="n" x="300" y="40" width="400" height="254" rx="12"/>
+        <rect class="n n-gpu" x="324" y="60" width="352" height="64" rx="8"/>
+        <text class="t" x="500" y="87">hears every word</text>
+        <text class="m" x="500" y="106">faster-whisper, up to 3 passes, voted</text>
+        <rect class="n n-gpu" x="324" y="136" width="352" height="64" rx="8"/>
+        <text class="t" x="500" y="163">tells the voices apart</text>
+        <text class="m" x="500" y="182">pyannote, then a voice-print check</text>
+        <rect class="n n-net n-opt" x="324" y="212" width="352" height="64" rx="8"/>
+        <text class="t" x="500" y="239">explains it, checks it</text>
+        <text class="m" x="500" y="258">Claude Code or a local model, optional</text>
+
+        <rect class="n" x="764" y="40" width="220" height="56" rx="8"/>
+        <text class="tm" x="874" y="63">name.md</text>
+        <text class="s" x="874" y="81">who said what, and when</text>
+        <rect class="n" x="764" y="106" width="220" height="56" rx="8"/>
+        <text class="tm" x="874" y="129">name.srt  name.vtt</text>
+        <text class="s" x="874" y="147">subtitles with speaker names</text>
+        <rect class="n" x="764" y="172" width="220" height="56" rx="8"/>
+        <text class="tm" x="874" y="195">name.sinribe.json</text>
+        <text class="s" x="874" y="213">every word with its timing</text>
+        <rect class="n n-net n-opt" x="764" y="238" width="220" height="56" rx="8"/>
+        <text class="tm" x="874" y="261">name - Summary.html</text>
+        <text class="s" x="874" y="279">a brief to learn it in minutes</text>
+
+        <path class="e e-net" d="M236,96 H294" marker-end="url(#w-ahn)"/>
+        <path class="e" d="M236,226 H294" marker-end="url(#w-ah)"/>
+        <path class="e" d="M700,68 H758" marker-end="url(#w-ah)"/>
+        <path class="e" d="M700,134 H758" marker-end="url(#w-ah)"/>
+        <path class="e" d="M700,200 H758" marker-end="url(#w-ah)"/>
+        <path class="e e-net dash" d="M700,266 H758" marker-end="url(#w-ahn)"/>
+        <text class="lab c" x="500" y="318">all of this runs on this machine, except the amber parts</text>
+      </svg>
+    </div>
+    <figcaption><b>Figure 1.</b> The whole tool from outside. No audio ever leaves the machine and the speech models run offline. Only two things cross the network: downloading a link, and the optional brief, which sends the transcript's text (never the audio) to Claude. Pick the local model and the brief stays on the machine too.</figcaption>
+  </figure>
+
+  <h3 style="margin-top:44px">What it can do, measured</h3>
+  <div class="caps">
+    <div><b>4 h in 11 min</b><strong>Fast on one laptop GPU</strong><span>A four-hour, three-speaker recording took 10 min 58 s, speaker separation included. One pass, measured 26 July 2026.</span></div>
+    <div><b>97.3 %</b><strong>The right speaker</strong><span>of words placed with the right person on a hard two-person Bavarian interview. Vibe, on the same file, has no speaker labels.</span></div>
+    <div><b>21.9 %</b><strong>Fewer wrong words</strong><span>word error rate on that far-field interview at the default setting, against 23.8 % for Vibe. Scored against a human transcript.</span></div>
+    <div><b>57 %</b><strong>Doubts that are real</strong><span>of the words it flags as doubtful are actually wrong, so proofreading becomes a checklist of timestamps.</span></div>
+    <div><b>1.3 s</b><strong>Nothing computed twice</strong><span>to bring back a finished four-hour job from its checkpoints. Renaming a speaker re-exports in milliseconds.</span></div>
+    <div><b>3 min</b><strong>Read instead of listen</strong><span>to read the brief of a 10 min 45 s video. The full summary is held to about 15 % of the spoken words.</span></div>
+    <div><b>14 claims</b><strong>Checked against today</strong><span>in one run, each marked outdated, incorrect, disputed, still open, still accurate or unverified, with a real source.</span></div>
+    <div><b>$3.25</b><strong>No API key needed</strong><span>of Claude subscription usage for that brief and its web check, 5 min 24 s. The local model costs nothing.</span></div>
+  </div>
+  <p class="sublede" style="margin-top:14px">The <a href="https://darian-gajgic.github.io/Sinribe/benchmark/">published benchmark</a> scores the same interview with its own scorer, which keeps filler words, so its reference has 9,174 words instead of 8,980. It reports 18.84 % against Vibe's 20.51 %, and 99.60 % of words on the right speaker. The absolute numbers differ, and Sinribe leads in both.</p>
+
+  <div class="prose" style="margin-top:28px">
+    <h3 style="margin-top:0">What it is not</h3>
+    <ul>
+      <li><strong>Not live dictation.</strong> It works on finished recordings, ten seconds or four hours long.</li>
+      <li><strong>Not a cloud service.</strong> There is no server and no account, apart from the optional Claude login for the brief.</li>
+      <li><strong>Not a finished proofread.</strong> On hard, distant, accented speech about one word in five is still wrong. The transcript ends with a list of exactly where to listen again.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================================================================ LEVEL 2 -->
+<section class="level" id="l2">
+  <div class="level-head">
+    <span class="level-num">2</span>
+    <div><span class="eyebrow">Level 2 of 4 · sinribe/pipeline.py, Runner.run()</span><h2>How one job flows</h2></div>
+    <span class="meter" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i><i></i></span>
+  </div>
+  <div class="prose level-intro">
+    <p>Open the box and there are ten stages in a fixed order, running in three places: on the network, on the GPU, and on the CPU. The dotted line is the most important design decision on this page.</p>
+  </div>
+
+  <figure>
+    <div class="fig-scroll">
+      <svg class="dia" viewBox="0 0 1000 336" role="img" aria-label="The stages of one job in three lanes. Probe the writer of the brief on the CPU. Download a link over the network, or skip it for a local file. Decode to 16 kilohertz mono on the CPU. On the GPU, one process at a time: find who speaks when, transcribe the words in one to three passes, and check voices. Then align words to speakers and write the transcript files on the CPU. After a dotted line, write the brief over the network and render the page on the CPU.">
+        <defs>
+          <marker id="f-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+          <marker id="f-ahn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-net" d="M0,0 L10,5 L0,10 z"/></marker>
+          <marker id="f-ahg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-gpu" d="M0,0 L10,5 L0,10 z"/></marker>
+        </defs>
+        <rect class="band-net" x="8" y="8" width="984" height="92" rx="10"/>
+        <rect class="band-gpu" x="8" y="108" width="984" height="92" rx="10"/>
+        <rect class="band-loc" x="8" y="208" width="984" height="92" rx="10"/>
+        <text class="cap" x="20" y="26">NETWORK</text>
+        <text class="cap" x="20" y="126">GPU, ONE PROCESS AT A TIME</text>
+        <text class="cap" x="20" y="226">THIS MACHINE, CPU</text>
+
+        <a href="#claude"><rect class="n" x="96" y="234" width="78" height="58" rx="6"/>
+        <text class="t" x="135" y="254">probe</text>
+        <text class="s" x="135" y="269">the writer</text>
+        <text class="m" x="135" y="284">pick()</text></a>
+
+        <a href="#download"><rect class="n n-net" x="186" y="34" width="78" height="58" rx="6"/>
+        <text class="t" x="225" y="54">download</text>
+        <text class="s" x="225" y="69">links only</text>
+        <text class="m" x="225" y="84">fetch.py</text></a>
+
+        <rect class="n" x="276" y="234" width="78" height="58" rx="6"/>
+        <text class="t" x="315" y="254">decode</text>
+        <text class="s" x="315" y="269">16 kHz mono</text>
+        <text class="m" x="315" y="284">ffmpeg</text>
+
+        <a href="#speakers"><rect class="n n-gpu" x="366" y="134" width="78" height="58" rx="6"/>
+        <text class="t" x="405" y="154">who spoke</text>
+        <text class="s" x="405" y="169">and when</text>
+        <text class="m" x="405" y="184">pyannote</text></a>
+
+        <a href="#words"><rect class="n n-gpu" x="456" y="134" width="78" height="58" rx="6"/>
+        <text class="t" x="495" y="154">words</text>
+        <text class="s" x="495" y="169">1 to 3 passes</text>
+        <text class="m" x="495" y="184">whisper</text></a>
+
+        <a href="#speakers"><rect class="n n-gpu n-opt" x="546" y="134" width="78" height="58" rx="6"/>
+        <text class="t" x="585" y="154">check</text>
+        <text class="s" x="585" y="169">voices</text>
+        <text class="m" x="585" y="184">refine</text></a>
+
+        <a href="#speakers"><rect class="n" x="636" y="234" width="78" height="58" rx="6"/>
+        <text class="t" x="675" y="254">align</text>
+        <text class="s" x="675" y="269">into turns</text>
+        <text class="m" x="675" y="284">merge.py</text></a>
+
+        <rect class="n" x="726" y="234" width="78" height="58" rx="6"/>
+        <text class="t" x="765" y="254">write</text>
+        <text class="s" x="765" y="269">transcript</text>
+        <text class="m" x="765" y="284">.md .json</text>
+
+        <line class="fw" x1="822" y1="12" x2="822" y2="300"/>
+
+        <a href="#passes"><rect class="n n-net n-opt" x="842" y="34" width="142" height="58" rx="6"/>
+        <text class="t" x="913" y="54">write the brief</text>
+        <text class="s" x="913" y="69">plan, check, sections</text>
+        <text class="m" x="913" y="84">summary/build.py</text></a>
+
+        <a href="#page"><rect class="n n-opt" x="842" y="234" width="142" height="58" rx="6"/>
+        <text class="t" x="913" y="254">render the page</text>
+        <text class="s" x="913" y="269">HTML + Markdown</text>
+        <text class="m" x="913" y="284">webpage.py</text></a>
+
+        <path class="e e-net" d="M135,234 V63 H180" marker-end="url(#f-ahn)"/>
+        <text class="lab" x="141" y="184">a link</text>
+        <path class="e dash" d="M174,276 H270" marker-end="url(#f-ah)"/>
+        <text class="lab c" x="222" y="270">a file</text>
+        <path class="e e-net" d="M225,92 V252 H270" marker-end="url(#f-ahn)"/>
+        <path class="e" d="M315,234 V163 H360" marker-end="url(#f-ah)"/>
+        <path class="e e-gpu" d="M444,163 H450" marker-end="url(#f-ahg)"/>
+        <path class="e e-gpu" d="M534,163 H540" marker-end="url(#f-ahg)"/>
+        <path class="e" d="M585,192 V263 H630" marker-end="url(#f-ah)"/>
+        <path class="e" d="M714,263 H720" marker-end="url(#f-ah)"/>
+        <path class="e" d="M765,234 V63 H836" marker-end="url(#f-ah)"/>
+        <path class="e" d="M913,92 V228" marker-end="url(#f-ah)"/>
+
+        <text class="lab end" x="814" y="322">the job you asked for: always runs, saved first</text>
+        <text class="lab" x="830" y="322">a second job</text>
+      </svg>
+    </div>
+    <figcaption><b>Figure 2.</b> One job, left to right. A local file skips the download. The three GPU stages each run as their own process, one after another, so they never compete for the card. Everything left of the dotted line is written to disk before the brief starts, so a brief that fails costs the brief and nothing else. Click a box to jump to its level 3 section.</figcaption>
+  </figure>
+
+  <div class="pair">
+    <div>
+      <h4>Fail at second zero</h4>
+      <p>The brief's writer is checked before any audio is decoded. A missing Claude login, or a web check asked of a model that cannot search, stops the job with a dialog, not after a two-hour wait. The check reads the stored login with <code>claude auth status</code> and costs nothing.</p>
+    </div>
+    <div>
+      <h4>Protect the transcript</h4>
+      <p>Every stage left of the line saves a checkpoint, and only a finished stage may save one. A cancelled or crashed job resumes where it stopped. Any failure in the brief is logged and shown, and the transcript files are already on disk.</p>
+    </div>
+  </div>
+
+  <h3 style="margin-top:40px">What each stage hands to the next</h3>
+  <div class="tbl wide">
+    <table>
+      <thead><tr><th>Stage</th><th>Takes</th><th>Hands on</th><th>Saved as</th></tr></thead>
+      <tbody>
+        <tr><td>download</td><td>a URL</td><td>the best audio stream in its native container, plus title, channel, publish date, description and chapters</td><td><code>downloads/&lt;video-id&gt;.&lt;ext&gt;</code></td></tr>
+        <tr><td>decode</td><td>any audio or video file</td><td>16 kHz mono WAV, the one format every model reads</td><td><code>decoded.wav</code></td></tr>
+        <tr><td>who spoke when</td><td>the WAV</td><td>turns: start, end and an anonymous label such as <code>SPEAKER_01</code></td><td><code>diar.json</code></td></tr>
+        <tr><td>words</td><td>the WAV, one decode per pass</td><td>every word with its start, end and confidence, voted across passes</td><td><code>asr-pass0.json</code> and on</td></tr>
+        <tr><td>check voices</td><td>the WAV, the words, the turns</td><td>for each sentence, the nearest voice and how decisive the match is</td><td><code>refine.json</code></td></tr>
+        <tr><td>align</td><td>words, turns, sentence verdicts</td><td>turns of text with readable names: Person 1, Person 2</td><td>nothing, it takes milliseconds</td></tr>
+        <tr><td>write</td><td>the turns</td><td><code>.md</code>, <code>.sinribe.json</code>, <code>.srt</code>, <code>.vtt</code></td><td>the output folder</td></tr>
+        <tr><td>brief</td><td>the turns and the metadata, as text</td><td>a structured brief, rendered to <code>- Summary.html</code> and <code>- Summary.md</code></td><td>the output folder</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ================================================================ LEVEL 3 -->
+<section class="level" id="l3">
+  <div class="level-head">
+    <span class="level-num">3</span>
+    <div><span class="eyebrow">Level 3 of 4 · one stage at a time</span><h2>How each part works</h2></div>
+    <span class="meter" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span>
+  </div>
+  <div class="prose level-intro">
+    <p>Six parts, each with its mechanism drawn out and the reason it is built that way. The numbers are measurements from real runs. Where something has not been measured, the text says so.</p>
+  </div>
+
+  <!-- ---------------------------------------------------------- download -->
+  <div class="part" id="download">
+    <span class="eyebrow">sinribe/fetch.py · probe() and download_audio()</span>
+    <h3>Getting the audio</h3>
+    <div class="prose">
+      <p><code>fetch.py</code> is the only networked module in the transcription half. It wraps yt-dlp, so YouTube is the common case but any site yt-dlp supports works. It reads the metadata first without downloading, so the <strong>Check</strong> button can show title, channel and length before you commit to three hours of audio.</p>
+    </div>
+
+    <figure>
+      <div class="fig-scroll">
+        <svg class="dia" viewBox="0 0 1000 320" role="img" aria-label="Download flow. A pasted link is recognised by is_url and probed for metadata without downloading. A live stream is rejected. If the file for that video id is already cached it is reused. Otherwise yt-dlp downloads the best audio stream, reporting progress through a hook that can also cancel. The file is kept in its native container and decoded to 16 kHz WAV. Errors from probe or download are turned into readable FetchError messages.">
+          <defs>
+            <marker id="d-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+            <marker id="d-ahb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+            <marker id="d-ahn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-net" d="M0,0 L10,5 L0,10 z"/></marker>
+          </defs>
+          <rect class="n" x="16" y="96" width="100" height="56" rx="6"/>
+          <text class="t" x="66" y="119">pasted link</text>
+          <text class="m" x="66" y="137">is_url()</text>
+          <rect class="n n-net" x="140" y="96" width="140" height="56" rx="6"/>
+          <text class="t" x="210" y="119">probe()</text>
+          <text class="s" x="210" y="137">title, date, chapters</text>
+          <polygon class="n" points="334,98 368,124 334,150 300,124"/>
+          <text class="s c" x="334" y="128" style="fill:var(--ink)">live?</text>
+          <polygon class="n" points="434,98 468,124 434,150 400,124"/>
+          <text class="s c" x="434" y="128" style="fill:var(--ink)">cached?</text>
+          <rect class="n n-net" x="496" y="96" width="160" height="56" rx="6"/>
+          <text class="t" x="576" y="119">YoutubeDL</text>
+          <text class="s" x="576" y="137">bestaudio/best, noplaylist</text>
+          <rect class="n" x="680" y="96" width="160" height="56" rx="6"/>
+          <text class="tm" x="760" y="119">&lt;video_id&gt;.&lt;ext&gt;</text>
+          <text class="s" x="760" y="137">native container, kept</text>
+          <rect class="n" x="864" y="96" width="120" height="56" rx="6"/>
+          <text class="t" x="924" y="119">decode</text>
+          <text class="s" x="924" y="137">ffmpeg → 16 kHz WAV</text>
+          <rect class="n n-bad" x="274" y="196" width="120" height="44" rx="6"/>
+          <text class="t" x="334" y="215">FetchError</text>
+          <text class="s" x="334" y="231">"wait until it ends"</text>
+          <rect class="n n-key" x="380" y="16" width="160" height="42" rx="6"/>
+          <text class="t" x="460" y="34">reuse cached file</text>
+          <text class="s" x="460" y="50">never downloads twice</text>
+          <rect class="n" x="496" y="206" width="160" height="48" rx="6"/>
+          <text class="t" x="576" y="226">progress hook</text>
+          <text class="s" x="576" y="243">MB of MB at MB/s → bar</text>
+          <rect class="n n-bad" x="16" y="266" width="234" height="42" rx="6"/>
+          <text class="t" x="133" y="284">readable error message</text>
+          <text class="m" x="133" y="300">_friendly() → FetchError</text>
+          <path class="e" d="M116,124 H134" marker-end="url(#d-ah)"/>
+          <path class="e" d="M280,124 H294" marker-end="url(#d-ah)"/>
+          <path class="e" d="M368,124 H394" marker-end="url(#d-ah)"/>
+          <text class="lab c" x="381" y="116">no</text>
+          <path class="e" d="M468,124 H490" marker-end="url(#d-ah)"/>
+          <text class="lab c" x="480" y="116">no</text>
+          <path class="e e-net" d="M656,124 H674" marker-end="url(#d-ahn)"/>
+          <path class="e" d="M840,124 H858" marker-end="url(#d-ah)"/>
+          <path class="e e-bad" d="M334,150 V190" marker-end="url(#d-ahb)"/>
+          <text class="lab" x="341" y="176">yes</text>
+          <path class="e" d="M434,98 V64" marker-end="url(#d-ah)"/>
+          <text class="lab" x="441" y="84">yes</text>
+          <path class="e" d="M540,37 H760 V90" marker-end="url(#d-ah)"/>
+          <text class="lab c" x="650" y="30">same path</text>
+          <path class="e" d="M556,152 V200" marker-end="url(#d-ah)"/>
+          <text class="lab" x="550" y="184" text-anchor="end">each chunk</text>
+          <path class="e e-bad" d="M596,206 V158" marker-end="url(#d-ahb)"/>
+          <text class="lab e-txt" x="603" y="184">cancel</text>
+          <path class="e e-bad dash" d="M210,152 V260" marker-end="url(#d-ahb)"/>
+          <text class="lab e-txt" x="217" y="214">raises</text>
+          <path class="e e-bad dash" d="M496,144 H480 V287 H256" marker-end="url(#d-ahb)"/>
+          <text class="lab e-txt c" x="420" y="280">raises</text>
+        </svg>
+      </div>
+      <figcaption><b>Figure 3.1.</b> The download path. The cache is keyed by the site's own video id, so re-running a link or resuming a cancelled job reuses the file. The only way out of yt-dlp's download loop is to raise from the progress hook, which is how Cancel works.</figcaption>
+    </figure>
+
+    <div class="why"><span>WHY</span><div>
+      <p><strong>No re-encoding.</strong> The decode stage normalises everything to 16 kHz mono anyway, so re-encoding the download would only add a lossy generation.</p>
+      <p><strong>The publish date is kept.</strong> A claim can only be outdated relative to when it was made, so the web check needs it. Description and chapter markers are kept too, because podcasts list the papers and tools they mention there.</p>
+      <p><strong>yt-dlp is deliberately unpinned.</strong> Sites change their delivery constantly and a pinned copy rots silently. If a link stops working, update it first: <code>uv pip install --python .venv/bin/python -U yt-dlp</code>.</p>
+    </div></div>
+  </div>
+
+  <!-- ---------------------------------------------------------- speakers -->
+  <div class="part" id="speakers">
+    <span class="eyebrow">sinribe/merge.py · workers/diar_worker.py · workers/refine_worker.py</span>
+    <h3>Who said it</h3>
+    <div class="prose">
+      <p>Two models look at the same audio and neither knows the whole answer. The diarizer (pyannote) hears <em>when the voice changes</em> across the whole recording, but its boundaries run late. Whisper hears <em>what was said</em>, in segments that ignore who is speaking. Joining the two is where transcripts usually go wrong. Sinribe joins them in four steps:</p>
+      <ol>
+        <li>Each word goes to the diarization turn it overlaps most.</li>
+        <li>Each sentence takes the majority speaker of its words, weighted by how long each word lasts.</li>
+        <li>A voice-print check may overrule a sentence, but only when it is decisive.</li>
+        <li>Runs of fewer than 3 words are smoothed into their neighbours, then words are grouped into turns. A turn breaks on a speaker change, a silence over 1.5 s, or past 1,200 characters.</li>
+      </ol>
+    </div>
+
+    <figure>
+      <div class="fig-scroll">
+        <svg class="dia" viewBox="0 0 1000 540" role="img" aria-label="Two speaker problems. A: the diarization boundary is 300 milliseconds late, so the word Well is first given to Person 1. The sentence vote gives the whole sentence Well I disagree to Person 2, because 0.71 seconds of it is Person 2 against 0.24 seconds of Person 1. B: a short answer Yes, exactly was swallowed inside Person 1's turn, so every word in it says Person 1 and the sentence vote cannot help. Its audio is embedded and compared with each speaker's voice print: 0.71 for Person 2 against 0.37 for Person 1, a margin of 0.34, above the 0.15 threshold, so it is relabelled Person 2 and locked.">
+          <defs>
+            <marker id="s-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+            <marker id="s-ahg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-gpu" d="M0,0 L10,5 L0,10 z"/></marker>
+            <marker id="s-aho" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-ok" d="M0,0 L10,5 L0,10 z"/></marker>
+          </defs>
+          <text class="cap" x="16" y="20">A · THE BOUNDARY IS LATE: THE SENTENCE VOTE FIXES IT</text>
+          <line class="grid" x1="170" y1="32" x2="170" y2="238"/>
+          <line class="grid" x1="332.5" y1="32" x2="332.5" y2="238"/>
+          <line class="grid" x1="495" y1="32" x2="495" y2="238"/>
+          <line class="grid" x1="657.5" y1="32" x2="657.5" y2="238"/>
+          <line class="grid" x1="820" y1="32" x2="820" y2="238"/>
+
+          <text class="rl" x="16" y="54">what was said</text>
+          <rect class="sp1" x="170" y="40" width="373.75" height="20" rx="3"/>
+          <rect class="sp2" x="543.75" y="40" width="406.25" height="20" rx="3"/>
+          <text class="p1-txt" x="178" y="54">Person 1</text>
+          <text class="p2-txt" x="552" y="54">Person 2</text>
+
+          <text class="rl" x="16" y="90">diarization</text>
+          <rect class="sp1" x="170" y="76" width="471.25" height="20" rx="3"/>
+          <rect class="sp2" x="641.25" y="76" width="308.75" height="20" rx="3"/>
+          <text class="p1-txt" x="178" y="90">Person 1</text>
+          <text class="p2-txt" x="649" y="90">Person 2</text>
+          <path class="e e-bad" d="M543.75,100 V106 H641.25 V100"/>
+          <text class="lab e-txt c" x="592.5" y="118">300 ms late</text>
+
+          <text class="rl" x="16" y="145">each word,</text>
+          <text class="rl" x="16" y="159">by overlap</text>
+          <rect class="sp1" x="202.5" y="128" width="97.5" height="30" rx="4"/><text class="wd" x="251.25" y="148">that's</text>
+          <rect class="sp1" x="306.5" y="128" width="58.5" height="30" rx="4"/><text class="wd" x="335.75" y="148">my</text>
+          <rect class="sp1" x="371.5" y="128" width="139.75" height="30" rx="4"/><text class="wd" x="441.4" y="148">view.</text>
+          <rect class="sp1" x="553.5" y="128" width="78" height="30" rx="4"/><text class="wd" x="592.5" y="148">Well</text>
+          <rect class="wrong" x="551.5" y="126" width="82" height="34" rx="5"/>
+          <rect class="sp2" x="657.5" y="128" width="39" height="30" rx="4"/><text class="wd" x="677" y="148">I</text>
+          <rect class="sp2" x="709.5" y="128" width="191.75" height="30" rx="4"/><text class="wd" x="805.4" y="148">disagree.</text>
+
+          <text class="rl" x="16" y="187">after the</text>
+          <text class="rl" x="16" y="201">sentence vote</text>
+          <rect class="sp1" x="202.5" y="172" width="97.5" height="30" rx="4"/><text class="wd" x="251.25" y="192">that's</text>
+          <rect class="sp1" x="306.5" y="172" width="58.5" height="30" rx="4"/><text class="wd" x="335.75" y="192">my</text>
+          <rect class="sp1" x="371.5" y="172" width="139.75" height="30" rx="4"/><text class="wd" x="441.4" y="192">view.</text>
+          <rect class="sp2" x="553.5" y="172" width="78" height="30" rx="4"/><text class="wd" x="592.5" y="192">Well</text>
+          <rect class="sp2" x="657.5" y="172" width="39" height="30" rx="4"/><text class="wd" x="677" y="192">I</text>
+          <rect class="sp2" x="709.5" y="172" width="191.75" height="30" rx="4"/><text class="wd" x="805.4" y="192">disagree.</text>
+          <path class="lead" d="M202.5,208 V213 H511.25 V208"/>
+          <path class="lead" d="M553.5,208 V213 H901.25 V208"/>
+          <text class="lab c" x="356.9" y="226">sentence 1: all Person 1</text>
+          <text class="lab c" x="727.4" y="226">sentence 2: 0.71 s Person 2 against 0.24 s Person 1</text>
+
+          <text class="num c" x="170" y="252">2.0 s</text>
+          <text class="num c" x="332.5" y="252">2.5 s</text>
+          <text class="num c" x="495" y="252">3.0 s</text>
+          <text class="num c" x="657.5" y="252">3.5 s</text>
+          <text class="num c" x="820" y="252">4.0 s</text>
+
+          <text class="cap" x="16" y="292">B · AN ANSWER THE DIARIZER SWALLOWED: THE VOICE PRINT FIXES IT</text>
+          <text class="rl" x="16" y="320">diarization</text>
+          <rect class="sp1" x="170" y="306" width="780" height="20" rx="3"/>
+          <text class="p1-txt" x="178" y="320">Person 1, one long turn</text>
+          <text class="rl" x="16" y="352">sentence vote</text>
+          <rect class="sp1" x="250" y="336" width="220" height="30" rx="4"/><text class="wd" x="360" y="356">…and did it work?</text>
+          <rect class="sp1" x="500" y="336" width="140" height="30" rx="4"/><text class="wd" x="570" y="356">Yes, exactly.</text>
+          <rect class="wrong" x="498" y="334" width="144" height="34" rx="5"/>
+          <rect class="sp1" x="670" y="336" width="220" height="30" rx="4"/><text class="wd" x="780" y="356">So we kept it.</text>
+          <text class="lab e-txt" x="650" y="384">every word in it says Person 1</text>
+
+          <rect class="n" x="170" y="402" width="170" height="60" rx="6"/>
+          <text class="t" x="255" y="427">its own audio</text>
+          <text class="s" x="255" y="445">0.9 s cut from the WAV</text>
+          <rect class="n n-gpu" x="380" y="402" width="170" height="60" rx="6"/>
+          <text class="t" x="465" y="427">embed it</text>
+          <text class="m" x="465" y="445">refine_worker.py</text>
+          <rect class="n" x="590" y="402" width="190" height="60" rx="6"/>
+          <text class="s" x="685" y="416">cosine to each voice print</text>
+          <text class="p2-txt" x="604" y="434">Person 2</text>
+          <rect class="sp2f" x="664" y="426" width="71" height="9" rx="2"/>
+          <text class="num" x="741" y="434">0.71</text>
+          <text class="p1-txt" x="604" y="453">Person 1</text>
+          <rect class="sp1f" x="664" y="445" width="37" height="9" rx="2"/>
+          <text class="num" x="707" y="453">0.37</text>
+          <rect class="n n-ok" x="820" y="402" width="164" height="60" rx="6"/>
+          <text class="t" x="902" y="424" style="fill:var(--p2)">Person 2</text>
+          <text class="s" x="902" y="440">margin 0.34 ≥ 0.15</text>
+          <text class="s" x="902" y="455">locked against smoothing</text>
+
+          <path class="e" d="M570,368 V388 H255 V396" marker-end="url(#s-ah)"/>
+          <path class="e e-gpu" d="M340,432 H374" marker-end="url(#s-ahg)"/>
+          <path class="e" d="M550,432 H584" marker-end="url(#s-ah)"/>
+          <path class="e e-ok" d="M780,432 H814" marker-end="url(#s-aho)"/>
+
+          <rect class="n n-gpu" x="590" y="484" width="190" height="44" rx="6"/>
+          <text class="t" x="685" y="502">voice prints</text>
+          <text class="s" x="685" y="518">turns ≥ 2 s, 0.5 s clear, ≤ 10 s each</text>
+          <path class="e e-gpu" d="M685,484 V468" marker-end="url(#s-ahg)"/>
+          <text class="lab" x="170" y="500">Margin under 0.15, or a sentence under 0.8 s:</text>
+          <text class="lab" x="170" y="514">the diarizer's label stands.</text>
+        </svg>
+      </div>
+      <figcaption><b>Figure 3.2.</b> The two failures the sentence vote and the voice print exist for. Panel A is drawn to scale on the time axis. In panel B the cosine values are illustrative, while the thresholds are the real ones: a voice print is built only from turns at least 2 s long, 0.5 s clear of any other speaker, capped at 10 s each; a sentence under 0.35 s is too short to embed at all.</figcaption>
+    </figure>
+
+    <div class="hbars" aria-label="Questions merged into their answers on a 34-minute German interview">
+      <p class="t">Questions merged into their answers, one 34-minute German interview (fewer is better)</p>
+      <div class="hb"><span>word by word</span><span class="track"><i style="width:100%"></i></span><b>28</b></div>
+      <div class="hb"><span>+ sentence vote</span><span class="track"><i style="width:64.3%"></i></span><b>18</b></div>
+      <div class="hb best"><span>+ voice prints</span><span class="track"><i style="width:39.3%"></i></span><b>11</b></div>
+    </div>
+
+    <div class="why"><span>WHY</span><div>
+      <p><strong>A sentence is the right unit.</strong> A single word is too small to weigh against a boundary that routinely lands 300 ms late, and a whole whisper segment often spans two speakers. People take turns at sentence boundaries.</p>
+      <p><strong>The voice print is the only fix for a span labelled outright wrong.</strong> By then every word carries the wrong label, so no regrouping can recover it. Margins on real audio are bimodal: confident corrections land above 0.3 and coin flips below 0.1, so the 0.15 threshold sits in an empty gap. It costs about 5 seconds on a 34-minute file, because only the embedding model is loaded.</p>
+    </div></div>
+  </div>
+
+  <!-- ---------------------------------------------------------- words -->
+  <div class="part" id="words">
+    <span class="eyebrow">sinribe/rover.py · sinribe/presets.py · workers/asr_worker.py</span>
+    <h3>Getting the words right</h3>
+    <div class="prose">
+      <p>A single whisper pass makes mistakes that depend on how it happened to cut the audio into chunks. Decode the same audio differently, or with a differently trained model, and it mishears <em>other</em> words. So the default setting transcribes three times and lets every word be decided by vote. The first pass is the pivot: it supplies the timings, and the others can only overrule its text.</p>
+    </div>
+
+    <figure>
+      <div class="fig-scroll">
+        <svg class="dia" viewBox="0 0 1000 290" role="img" aria-label="Three passes vote on one German sentence. Pass 1, the pivot, heard es where passes 2 and 3 heard das, so das wins with 1.58 against 0.62. Pass 3 inserted ja, which no other pass heard, so it is dropped. Pass 3 missed gleich, which counts as half a vote against, and gleich is kept. The result is dann haben wir das gleich geändert.">
+          <text class="rl" x="16" y="68">pass 1, the pivot</text>
+          <text class="ml" x="16" y="82">large-v3, in order</text>
+          <text class="rl" x="16" y="112">pass 2</text>
+          <text class="ml" x="16" y="126">large-v3, batched</text>
+          <text class="rl" x="16" y="156">pass 3</text>
+          <text class="ml" x="16" y="170">turbo-german model</text>
+          <text class="rl" x="16" y="226">the vote</text>
+          <text class="ml" x="16" y="240">rover.combine()</text>
+
+          <rect class="n" x="215" y="52" width="90" height="34" rx="5"/><text class="wd" x="260" y="74">dann</text>
+          <rect class="n" x="325" y="52" width="90" height="34" rx="5"/><text class="wd" x="370" y="74">haben</text>
+          <rect class="n" x="435" y="52" width="90" height="34" rx="5"/><text class="wd" x="480" y="74">wir</text>
+          <rect class="n n-bad" x="575" y="52" width="90" height="34" rx="5"/><text class="wd" x="610" y="74">es</text><text class="num" x="634" y="74">0.62</text>
+          <rect class="n" x="695" y="52" width="90" height="34" rx="5"/><text class="wd" x="725" y="74">gleich</text><text class="num" x="756" y="74">0.90</text>
+          <rect class="n" x="815" y="52" width="90" height="34" rx="5"/><text class="wd" x="860" y="74">geändert</text>
+
+          <rect class="n" x="215" y="96" width="90" height="34" rx="5"/><text class="wd" x="260" y="118">dann</text>
+          <rect class="n" x="325" y="96" width="90" height="34" rx="5"/><text class="wd" x="370" y="118">haben</text>
+          <rect class="n" x="435" y="96" width="90" height="34" rx="5"/><text class="wd" x="480" y="118">wir</text>
+          <rect class="n" x="575" y="96" width="90" height="34" rx="5"/><text class="wd" x="607" y="118">das</text><text class="num" x="634" y="118">0.81</text>
+          <rect class="n" x="695" y="96" width="90" height="34" rx="5"/><text class="wd" x="725" y="118">gleich</text><text class="num" x="756" y="118">0.88</text>
+          <rect class="n" x="815" y="96" width="90" height="34" rx="5"/><text class="wd" x="860" y="118">geändert</text>
+
+          <rect class="n" x="215" y="140" width="90" height="34" rx="5"/><text class="wd" x="260" y="162">dann</text>
+          <rect class="n" x="325" y="140" width="90" height="34" rx="5"/><text class="wd" x="370" y="162">haben</text>
+          <rect class="n" x="435" y="140" width="90" height="34" rx="5"/><text class="wd" x="480" y="162">wir</text>
+          <rect class="n n-bad" x="533" y="144" width="34" height="26" rx="5"/><text class="wd" x="550" y="162">ja</text>
+          <line class="strike" x1="536" y1="157" x2="564" y2="157"/>
+          <rect class="n" x="575" y="140" width="90" height="34" rx="5"/><text class="wd" x="607" y="162">das</text><text class="num" x="634" y="162">0.77</text>
+          <rect class="n n-opt" x="695" y="140" width="90" height="34" rx="5"/><text class="s" x="725" y="161">nothing</text><text class="num" x="756" y="162">0.5</text>
+          <rect class="n" x="815" y="140" width="90" height="34" rx="5"/><text class="wd" x="860" y="162">geändert</text>
+
+          <text class="lab e-txt c" x="550" y="194">one pass only: dropped</text>
+
+          <rect class="n n-key" x="215" y="208" width="90" height="38" rx="5"/><text class="wd" x="260" y="232">dann</text>
+          <rect class="n n-key" x="325" y="208" width="90" height="38" rx="5"/><text class="wd" x="370" y="232">haben</text>
+          <rect class="n n-key" x="435" y="208" width="90" height="38" rx="5"/><text class="wd" x="480" y="232">wir</text>
+          <rect class="n n-ok" x="575" y="208" width="90" height="38" rx="5"/><text class="wd ok-txt" x="620" y="232">das</text>
+          <rect class="n n-key" x="695" y="208" width="90" height="38" rx="5"/><text class="wd" x="740" y="232">gleich</text>
+          <rect class="n n-key" x="815" y="208" width="90" height="38" rx="5"/><text class="wd" x="860" y="232">geändert</text>
+
+          <text class="lab end" x="665" y="266">das 1.58 against es 0.62</text>
+          <text class="lab" x="695" y="266">gleich 1.78 against 0.5 for nothing</text>
+          <text class="lab" x="16" y="282">Numbers are each pass's confidence in the word; a missing word votes with a fixed 0.5.</text>
+        </svg>
+      </div>
+      <figcaption><b>Figure 3.3.</b> Every word is a vote. Passes are aligned to the pivot word by word, ignoring case and punctuation. A pass's confidence in a word is its weight. A word only one pass heard, in a place no other pass put anything, is dropped: far more often a hallucination than a rescue. The example sentence and confidences are illustrative; the rules are the code's.</figcaption>
+    </figure>
+
+    <div class="prose" style="margin-top:26px">
+      <p>That is the mechanism. The quality slider in the window turns it into a choice between speed and accuracy, and each position shows the error rate it actually scored on a hard German interview, not an adjective.</p>
+    </div>
+
+    <figure>
+      <div class="fig-scroll">
+        <svg class="dia" viewBox="0 0 1000 350" role="img" aria-label="Measured error rate against transcription speed for the quality slider, log scale. 85 times realtime with one pass: 23.1 percent. 51 times, one pass: 21.6. 20 times, one pass: 21.3. 15 times, two passes: 20.8. 11 times, three passes, the default: 20.4. The 5, 2 and 1 times settings with 5, 7 and 9 passes are not scored. A single pass with beam 20, at 5.6 times the compute, scored 21.6 percent.">
+          <text class="lab" x="16" y="30">word error rate, lower is better</text>
+          <line class="grid" x1="96" y1="77.4" x2="940" y2="77.4"/>
+          <line class="grid" x1="96" y1="140.3" x2="940" y2="140.3"/>
+          <line class="grid" x1="96" y1="203.1" x2="940" y2="203.1"/>
+          <line class="axis" x1="96" y1="266" x2="940" y2="266"/>
+          <text class="num end" x="88" y="81">23 %</text>
+          <text class="num end" x="88" y="144">22 %</text>
+          <text class="num end" x="88" y="207">21 %</text>
+          <text class="num end" x="88" y="270">20 %</text>
+
+          <rect class="band-loc" x="600" y="272" width="352" height="62" rx="6"/>
+          <text class="lab c" x="776" y="328">not scored yet: withdrawn after a bug, see below</text>
+
+          <line class="axis" x1="128.1" y1="266" x2="128.1" y2="271"/>
+          <line class="axis" x1="223" y1="266" x2="223" y2="271"/>
+          <line class="axis" x1="391" y1="266" x2="391" y2="271"/>
+          <line class="axis" x1="456.4" y1="266" x2="456.4" y2="271"/>
+          <line class="axis" x1="518" y1="266" x2="518" y2="271"/>
+          <line class="axis" x1="645" y1="266" x2="645" y2="271"/>
+          <line class="axis" x1="813" y1="266" x2="813" y2="271"/>
+          <line class="axis" x1="940" y1="266" x2="940" y2="271"/>
+          <text class="lab" x="16" y="288">slider</text>
+          <text class="num c" x="128.1" y="288">84×</text>
+          <text class="num c" x="223" y="288">50×</text>
+          <text class="num c" x="391" y="288">20×</text>
+          <text class="num c" x="456.4" y="288">14×</text>
+          <text class="num c" x="518" y="288">10×</text>
+          <text class="num c" x="645" y="288">5×</text>
+          <text class="num c" x="813" y="288">2×</text>
+          <text class="num c" x="932" y="288">1×</text>
+          <text class="lab" x="16" y="306">passes</text>
+          <text class="num c" x="128.1" y="306">1</text>
+          <text class="num c" x="223" y="306">1</text>
+          <text class="num c" x="391" y="306">1</text>
+          <text class="num c" x="456.4" y="306">2</text>
+          <text class="num c" x="518" y="306">3</text>
+          <text class="num c" x="645" y="306">5</text>
+          <text class="num c" x="813" y="306">7</text>
+          <text class="num c" x="932" y="306">9</text>
+          <circle class="hollow" cx="645" cy="266" r="5"/>
+          <circle class="hollow" cx="813" cy="266" r="5"/>
+          <circle class="hollow" cx="940" cy="266" r="5"/>
+
+          <polyline class="curve" points="125.4,71.1 219.8,165.4 387.3,184.3 448.6,215.7 505.6,240.9"/>
+          <circle class="dot" cx="125.4" cy="71.1" r="5.5"/>
+          <circle class="dot" cx="219.8" cy="165.4" r="5.5"/>
+          <circle class="dot" cx="387.3" cy="184.3" r="5.5"/>
+          <circle class="dot" cx="448.6" cy="215.7" r="5.5"/>
+          <circle class="dot" cx="505.6" cy="240.9" r="7.5"/>
+          <text class="num" x="136" y="66">23.1 %  turbo, batched</text>
+          <text class="num" x="230" y="160">21.6 %  large-v3, batched</text>
+          <text class="num" x="396" y="178">21.3 %  in order</text>
+          <text class="num" x="458" y="210">20.8 %</text>
+          <text class="acc-txt" x="518" y="244" style="font-size:12px">★ 20.4 %  the default</text>
+
+          <circle class="dot-bad" cx="703.3" cy="165.4" r="5.5"/>
+          <text class="num" x="714" y="161" style="fill:var(--bad)">21.6 %  one pass, beam 20</text>
+          <text class="num" x="714" y="176" style="fill:var(--bad)">at 5.6× the compute</text>
+          <text class="lab" x="940" y="30" text-anchor="end">transcription speed, × realtime, log scale: more time to the right →</text>
+        </svg>
+      </div>
+      <figcaption><b>Figure 3.4.</b> The slider, drawn to scale. Every filled point is a measurement of the shipped code on a 65-minute far-field Bavarian interview, transcription time only. The red point is one pass with a wider beam search, placed by its compute cost: it costs more than the default and scores worse than a single ordinary pass.</figcaption>
+    </figure>
+
+    <div class="why"><span>WHY</span><div>
+      <p><strong>Vote rather than search harder.</strong> Beam search explores one model's own guesses, so it only rescues an answer the model already had. On this audio the model's probabilities are themselves wrong about whether it heard <em>das</em> or <em>es</em>, and searching a wrong distribution harder returns the same wrong answer at five times the price.</p>
+      <p><strong>The biggest single step is a different model.</strong> Adding the turbo-german pass takes 20.8 % to 20.4 %. Two models trained differently mishear different words; one model re-chunked mostly mishears the same ones.</p>
+      <p><strong>Vanilla large-v3 is the default.</strong> The German fine-tune scored 24.8 % against 21.3 % on this interview. Its published gains come from read speech, and the narrower training costs robustness on distant, accented, spontaneous speech.</p>
+      <p><strong>The slow positions show no number on purpose.</strong> Their old figures were measured while a bug fed the noise-filtered passes unfiltered audio, so they voted with copies of the first pass. The bug is fixed; the numbers come back only after a new measurement.</p>
+      <p><strong>The last few points are left to a human.</strong> 8.7 % of words are wrong in every configuration tried, so no setting reaches them. Instead the transcript ends with <em>Worth a listen</em>: the passages below 0.5 confidence, which are 5 % of the text and contain words that are wrong 57 % of the time.</p>
+    </div></div>
+  </div>
+
+  <!-- ---------------------------------------------------------- passes -->
+  <div class="part" id="passes">
+    <span class="eyebrow">sinribe/summary/build.py · summarize()</span>
+    <h3>Writing the brief</h3>
+    <div class="prose">
+      <p>The brief is built in several bounded calls instead of one big ask. A single call that has to invent the outline and fill it writes a strong first section and a tired last one. Planning first means each section is written with the whole outline in view, so sections stay distinct. With the web check on, the plan also lists the claims worth checking, and the sections are written after the verdicts exist, so a stale fact is corrected where it is mentioned.</p>
+      <p>The summary never sees audio. It reads the merged turns, one line per turn with a timestamp, plus a short source block: title, channel, publish date and its age in days, length, speakers, language and today's date.</p>
+    </div>
+    <div class="sample">
+<pre aria-label="Example of the transcript format the summary reads"><code><span class="ts">[0:41:58]</span> <span class="sp">Host:</span> So which part of that forecast do you trust least?
+<span class="ts">[0:42:17]</span> <span class="sp">Guest:</span> The timing. The direction I would bet on, the year I would not.</code></pre>
+    </div>
+
+    <figure>
+      <div class="fig-scroll">
+        <svg class="dia" viewBox="0 0 1000 240" role="img" aria-label="Summary passes in order: notes, plan, research, verify, sections times N, close. The transcript prefix is sent to notes, plan, verify, sections and close, but never to research. Verdicts from the verify pass go to every section call and the close call.">
+          <defs>
+            <marker id="p-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+            <marker id="p-ahn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-net" d="M0,0 L10,5 L0,10 z"/></marker>
+          </defs>
+          <rect class="bar-net" x="508" y="10" width="474" height="26" rx="5"/>
+          <text class="lab" x="520" y="27" style="fill:var(--ink)">VERDICTS for each section, and every URL the tools returned</text>
+
+          <rect class="n n-opt" x="16" y="56" width="146" height="76" rx="6"/>
+          <text class="t" x="89" y="80">notes</text>
+          <text class="s" x="89" y="98">chunk → notes → fold</text>
+          <text class="s" x="89" y="114">only if too long</text>
+
+          <rect class="n" x="180" y="56" width="146" height="76" rx="6"/>
+          <text class="t" x="253" y="80">plan</text>
+          <text class="s" x="253" y="98">gist, outline, claims</text>
+          <text class="s" x="253" y="114">retried once if empty</text>
+
+          <a href="#research"><rect class="n n-net n-opt" x="344" y="56" width="146" height="76" rx="6"/>
+          <text class="t" x="417" y="80">research</text>
+          <text class="s" x="417" y="98">search, open pages</text>
+          <text class="s" x="417" y="114">Claude only, optional</text></a>
+
+          <rect class="n n-opt" x="508" y="56" width="146" height="76" rx="6"/>
+          <text class="t" x="581" y="80">verify</text>
+          <text class="s" x="581" y="98">one verdict per claim</text>
+          <text class="s" x="581" y="114">no tools</text>
+
+          <rect class="n" x="672" y="56" width="146" height="76" rx="6"/>
+          <text class="t" x="745" y="80">sections × N</text>
+          <text class="s" x="745" y="98">one call per section</text>
+          <text class="s" x="745" y="114">a failed one is skipped</text>
+
+          <rect class="n" x="836" y="56" width="146" height="76" rx="6"/>
+          <text class="t" x="909" y="80">close</text>
+          <text class="s" x="909" y="98">terms, quiz, sources</text>
+          <text class="s" x="909" y="114">links checked</text>
+
+          <path class="e dash" d="M162,94 H174" marker-end="url(#p-ah)"/>
+          <path class="e" d="M326,94 H338" marker-end="url(#p-ah)"/>
+          <path class="e e-net" d="M490,94 H502" marker-end="url(#p-ahn)"/>
+          <path class="e" d="M654,94 H666" marker-end="url(#p-ah)"/>
+          <path class="e" d="M818,94 H830" marker-end="url(#p-ah)"/>
+
+          <path class="e e-net" d="M581,56 V40" marker-end="url(#p-ahn)"/>
+          <path class="e e-net" d="M745,36 V50" marker-end="url(#p-ahn)"/>
+          <path class="e e-net" d="M909,36 V50" marker-end="url(#p-ahn)"/>
+
+          <rect class="bar" x="16" y="176" width="966" height="26" rx="5"/>
+          <text class="labm" x="28" y="193" style="fill:var(--ink)">TRANSCRIPT prefix  [h:mm:ss] Speaker: text, sent once, then reused</text>
+          <path class="e dash" d="M89,176 V138" marker-end="url(#p-ah)"/>
+          <path class="e" d="M253,176 V138" marker-end="url(#p-ah)"/>
+          <path class="e" d="M581,176 V138" marker-end="url(#p-ah)"/>
+          <path class="e" d="M745,176 V138" marker-end="url(#p-ah)"/>
+          <path class="e" d="M909,176 V138" marker-end="url(#p-ah)"/>
+          <text class="lab c" x="98" y="222">notes replace it on a small model</text>
+          <text class="lab c" x="417" y="222">research never receives it</text>
+          <text class="lab c" x="827" y="222">API: cache breakpoint · CLI: --resume</text>
+        </svg>
+      </div>
+      <figcaption><b>Figure 3.5.</b> What each pass receives. The transcript goes out once and is reused by every pass except research, which works from the plan's gist, outline and claim list. Each section receives only the verdicts for its own claims, which keeps the prompts small.</figcaption>
+    </figure>
+
+    <div class="tbl wide">
+      <table>
+        <thead><tr><th>Pass</th><th>Runs when</th><th>Returns</th><th>If it fails</th></tr></thead>
+        <tbody>
+          <tr><td>notes</td><td>The transcript is longer than the provider's window: 600,000 characters for Claude, 6,000 for the local model. In practice only the local model.</td><td>Notes per chunk, folded in rounds until they fit.</td><td>The brief is lost; the transcript is not.</td></tr>
+          <tr><td>plan</td><td>Always.</td><td>Title, a 50 to 80 word gist, 3 to 5 takeaways, why it matters, the numbers worth remembering, and the outline with a start time per section. With the web check: up to 16 claims, time-sensitive ones first.</td><td>Retried once asking for half as many sections, then an error.</td></tr>
+          <tr><td>research</td><td>Web check ticked and the writer can search.</td><td>A report with a status, the current fact and its sources for each claim, plus developments since the recording.</td><td>The brief is written without the check and says so at the top.</td></tr>
+          <tr><td>verify</td><td>After research.</td><td>One verdict per claim, filtered against the sources the tools returned.</td><td>Same as research.</td></tr>
+          <tr><td>sections</td><td>Once per planned section.</td><td>The point in one sentence, paragraphs, key points, up to 3 boxes, quotes, an optional table, what to do with it. All within a word budget.</td><td>That section is skipped; only zero sections is an error.</td></tr>
+          <tr><td>close</td><td>Always.</td><td>Key terms, a quiz with answers, moments worth watching, grouped sources.</td><td>The brief is lost; the transcript is not.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="why"><span>WHY</span><div>
+      <p><strong>A word budget, because the brief has to beat listening.</strong> Without one, a 10 min 45 s video came back as a 13-minute read. Now the full summary gets about 15 % of the spoken words, the same video reads in 3 minutes, and a two-hour interview in about a quarter of an hour.</p>
+<pre><code>sections = max(3, min(12, minutes // 10 + 2))
+total    = clamp(0.15 × spoken_words, 400, 3000)
+budget   = clamp(total // sections, 150, 350)   # words per section</code></pre>
+    </div></div>
+  </div>
+
+  <!-- ---------------------------------------------------------- research -->
+  <div class="part" id="research">
+    <span class="eyebrow">summary/build.py _web_check() · summary/schema.py verdicts(), restrict_links()</span>
+    <h3>Checking it against today</h3>
+    <div class="prose">
+      <p>The question this answers is the one you have about any AI video older than a few weeks: which of its facts no longer hold? It runs in four steps.</p>
+      <ol>
+        <li><strong>Pick the claims.</strong> The plan pass has just read the whole transcript, so it lists up to 16 specific, checkable claims, time-sensitive ones first: model versions, benchmarks, prices, release dates, company plans, predictions with a date.</li>
+        <li><strong>Search.</strong> The research call knows the publish date, prefers primary sources newer than the video, treats AI facts as fast-changing, and may not call a claim outdated on an undated source alone.</li>
+        <li><strong>Verify.</strong> A call with no tools turns the report into one verdict per claim: <em>outdated</em>, <em>incorrect</em>, <em>disputed</em>, <em>still open</em> (a prediction not yet due), <em>still accurate</em> or <em>unverified</em>.</li>
+        <li><strong>Write with it.</strong> Each section gets the verdicts for its own claims and states both what the recording said and what is true now.</li>
+      </ol>
+    </div>
+
+    <figure>
+      <div class="fig-scroll">
+        <svg class="dia" viewBox="0 0 1000 350" role="img" aria-label="Web check. The plan's claims go to the research pass, which writes a report. The verify pass turns the report into verdicts, which go into the brief. Separately, the code builds an allow-list from URLs in the transcript and description, the URLs the search tools actually returned, and the media URL. Every link in the brief is checked against that list and kept, or dropped and its verdict downgraded.">
+          <defs>
+            <marker id="r-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+            <marker id="r-ahn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-net" d="M0,0 L10,5 L0,10 z"/></marker>
+            <marker id="r-ahb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+            <marker id="r-aho" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-ok" d="M0,0 L10,5 L0,10 z"/></marker>
+            <marker id="r-aha" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-acc" d="M0,0 L10,5 L0,10 z"/></marker>
+          </defs>
+          <text class="cap" x="16" y="44">WHAT THE MODEL DOES</text>
+          <text class="cap" x="16" y="206">WHAT THE CODE CHECKS</text>
+
+          <rect class="n" x="16" y="56" width="176" height="72" rx="6"/>
+          <text class="t" x="104" y="80">plan pass</text>
+          <text class="s" x="104" y="98">up to 16 claims</text>
+          <text class="s" x="104" y="114">timestamp, section</text>
+
+          <rect class="n n-net" x="214" y="56" width="176" height="72" rx="6"/>
+          <text class="t" x="302" y="80">research pass</text>
+          <text class="s" x="302" y="98">search, open pages</text>
+          <text class="s" x="302" y="114">newest sources first</text>
+
+          <rect class="n" x="412" y="56" width="176" height="72" rx="6"/>
+          <text class="t" x="500" y="80">report</text>
+          <text class="s" x="500" y="98">status per claim</text>
+          <text class="s" x="500" y="114">+ developments since</text>
+
+          <rect class="n" x="610" y="56" width="176" height="72" rx="6"/>
+          <text class="t" x="698" y="80">verify pass</text>
+          <text class="s" x="698" y="98">one verdict per claim</text>
+          <text class="s" x="698" y="114">no tools</text>
+
+          <rect class="n" x="808" y="56" width="176" height="72" rx="6"/>
+          <text class="t" x="896" y="80">the brief</text>
+          <text class="s" x="896" y="98">verdicts, prose, sources</text>
+          <text class="s" x="896" y="114">every link it contains</text>
+
+          <path class="e" d="M192,92 H208" marker-end="url(#r-ah)"/>
+          <path class="e e-net" d="M390,92 H406" marker-end="url(#r-ahn)"/>
+          <path class="e" d="M588,92 H604" marker-end="url(#r-ah)"/>
+          <path class="e" d="M786,92 H802" marker-end="url(#r-ah)"/>
+
+          <rect class="n" x="16" y="216" width="176" height="60" rx="6"/>
+          <text class="t" x="104" y="240">transcript + description</text>
+          <text class="m" x="104" y="258">find_urls()</text>
+
+          <rect class="n n-net" x="214" y="216" width="176" height="60" rx="6"/>
+          <text class="t" x="302" y="240">tool results</text>
+          <text class="m" x="302" y="258">WebSearch, WebFetch</text>
+
+          <rect class="n" x="412" y="216" width="176" height="60" rx="6"/>
+          <text class="t" x="500" y="240">media source URL</text>
+          <text class="m" x="500" y="258">result["source"]</text>
+
+          <rect class="n n-key" x="610" y="216" width="176" height="60" rx="6"/>
+          <text class="t" x="698" y="240">allowed_urls</text>
+          <text class="s" x="698" y="258">not the report's prose</text>
+
+          <rect class="n n-key" x="808" y="216" width="176" height="60" rx="6"/>
+          <text class="tm" x="896" y="240">_url_allowed()</text>
+          <text class="s" x="896" y="258">scheme, www, case ignored</text>
+
+          <path class="e e-net" d="M302,128 V210" marker-end="url(#r-ahn)"/>
+          <text class="lab" x="309" y="174">URLs the tools returned</text>
+          <path class="e" d="M896,128 V210" marker-end="url(#r-ah)"/>
+          <text class="lab" x="903" y="174">each link</text>
+
+          <path class="e" d="M104,276 V300 H698 V282" marker-end="url(#r-ah)"/>
+          <path class="e" d="M302,276 V300"/>
+          <path class="e" d="M500,276 V300"/>
+          <text class="lab c" x="400" y="316">all three feed the allow-list</text>
+          <path class="e e-acc" d="M786,246 H802" marker-end="url(#r-aha)"/>
+
+          <rect class="n n-ok" x="808" y="306" width="50" height="30" rx="6"/>
+          <text class="ok-txt c" x="833" y="325" style="font-size:11px">kept</text>
+          <rect class="n n-bad" x="866" y="306" width="126" height="30" rx="6"/>
+          <text class="bad-txt c" x="929" y="325" style="font-size:10px">dropped or downgraded</text>
+          <path class="e e-ok" d="M833,276 V300" marker-end="url(#r-aho)"/>
+          <path class="e e-bad" d="M929,276 V300" marker-end="url(#r-ahb)"/>
+        </svg>
+      </div>
+      <figcaption><b>Figure 3.6.</b> Two tracks meet at the allow-list. A link survives only if it appeared in the recording or its description, is the video itself, or was returned by a search or opened by a fetch. A source the report merely names does not count. A verdict other than unverified that is left without a source becomes unverified, and a link inside the prose is unlinked but keeps its label.</figcaption>
+    </figure>
+
+    <div class="why"><span>WHY</span><div>
+      <p><strong>Sources come from the tools, never from the model's text.</strong> A model can name a plausible source it never read. The research call runs with <code>stream-json</code> output so the code can read each tool result itself, and only those URLs count.</p>
+      <p><strong>Research gets its own call, and verification has no tools.</strong> Searching and judging are separate jobs. The verify call can only weigh what the research call actually found, and its output is shaped to a schema the code can filter.</p>
+    </div></div>
+
+    <ul class="gaps">
+      <li><span class="chip">DATES</span><p><strong>Claude Code's search results carry no dates.</strong> The "as of" date comes from what the model read on the pages it opened.</p></li>
+      <li><span class="chip">JUDGEMENT</span><p><strong>A verdict is still a model's reading of its sources.</strong> The allow-list proves a source was really returned, not that it says what the verdict claims. Treat "outdated" as a strong pointer and open the link before acting on it.</p></li>
+      <li><span class="chip">API</span><p><strong>The direct-API research path has only run against a stub</strong>, never the real API. The Claude Code path is the one verified end to end.</p></li>
+    </ul>
+  </div>
+
+  <!-- ---------------------------------------------------------- page -->
+  <div class="part" id="page">
+    <span class="eyebrow">summary/schema.py · render/webpage.py</span>
+    <h3>The page you read</h3>
+    <div class="prose">
+      <p>Nothing the model returns goes straight to the page. Every answer is repaired if it was cut off, clamped to the schema's limits, cleaned of en and em dashes, held to the link allow-list, and only then escaped and rendered. The order on the page is the order a learner needs: the idea, what has changed, the vocabulary, the detail, then a way to check it stuck.</p>
+    </div>
+
+    <figure>
+      <div class="fig-scroll">
+        <svg class="dia" viewBox="0 0 1000 760" role="img" aria-label="Anatomy of the generated brief, with each region labelled by the pass that fills it. The hero has the title, facts, reading time and a freshness line. Then the 1-minute version with gist, takeaways, numbers and a heads-up. Then what has changed, key terms, and the full summary sections, each with an update callout, the point, paragraphs, key points, optional boxes, a quote and what to do with it. Then moments worth watching, a self-test, sources and the footer.">
+          <rect class="n" x="16" y="16" width="540" height="728" rx="10"/>
+          <rect class="wf-rail" x="28" y="28" width="104" height="704" rx="6"/>
+          <rect class="wf-ink" x="40" y="42" width="44" height="5" rx="2"/>
+          <rect class="wf-line" x="40" y="56" width="74" height="6" rx="3"/>
+          <rect class="wf-line" x="40" y="70" width="66" height="6" rx="3"/>
+          <rect class="wf-line" x="40" y="84" width="54" height="6" rx="3"/>
+          <rect class="wf-ink" x="40" y="104" width="54" height="5" rx="2"/>
+          <rect class="wf-line" x="40" y="118" width="70" height="6" rx="3"/>
+          <rect class="wf-line" x="40" y="132" width="58" height="6" rx="3"/>
+          <circle class="k-now" cx="104" cy="135" r="3"/>
+          <rect class="wf-line" x="40" y="146" width="66" height="6" rx="3"/>
+          <rect class="wf-line" x="40" y="160" width="52" height="6" rx="3"/>
+          <rect class="wf-line" x="40" y="174" width="70" height="6" rx="3"/>
+          <rect class="wf-line" x="40" y="188" width="60" height="6" rx="3"/>
+          <rect class="wf-ink" x="40" y="208" width="40" height="5" rx="2"/>
+          <rect class="wf-line" x="40" y="222" width="64" height="6" rx="3"/>
+          <rect class="wf-line" x="40" y="236" width="56" height="6" rx="3"/>
+          <rect class="wf-line" x="40" y="250" width="44" height="6" rx="3"/>
+          <text class="lab" x="40" y="282">sticky</text>
+          <text class="lab" x="40" y="296">contents</text>
+
+          <rect class="wf-acc" x="148" y="30" width="92" height="6" rx="3"/>
+          <rect class="wf-ink" x="148" y="42" width="300" height="14" rx="3"/>
+          <rect class="wf-line" x="148" y="63" width="250" height="6" rx="3"/>
+          <rect class="wf-line" x="148" y="79" width="50" height="5" rx="2"/>
+          <rect class="wf-line" x="206" y="79" width="84" height="5" rx="2"/>
+          <rect class="wf-line" x="298" y="79" width="36" height="5" rx="2"/>
+          <rect class="wf-acc" x="342" y="79" width="70" height="5" rx="2"/>
+          <rect class="wf-tile" x="148" y="92" width="74" height="12" rx="6"/>
+          <rect class="wf-tile" x="228" y="92" width="84" height="12" rx="6"/>
+          <rect class="wf-tile" x="318" y="92" width="96" height="12" rx="6"/>
+          <rect class="wf-warn" x="148" y="112" width="392" height="22" rx="5"/>
+          <rect class="wf-line" x="158" y="120" width="300" height="5" rx="2"/>
+
+          <rect class="wf-tile" x="148" y="144" width="392" height="146" rx="6"/>
+          <rect class="wf-ink" x="160" y="154" width="126" height="9" rx="3"/>
+          <rect class="wf-line" x="160" y="170" width="364" height="5" rx="2"/>
+          <rect class="wf-line" x="160" y="179" width="344" height="5" rx="2"/>
+          <rect class="wf-line" x="160" y="188" width="300" height="5" rx="2"/>
+          <circle class="k-impact" cx="164" cy="205" r="2"/><rect class="wf-ink" x="170" y="203" width="60" height="5" rx="2"/><rect class="wf-line" x="234" y="203" width="230" height="5" rx="2"/>
+          <circle class="k-impact" cx="164" cy="215" r="2"/><rect class="wf-ink" x="170" y="213" width="52" height="5" rx="2"/><rect class="wf-line" x="226" y="213" width="250" height="5" rx="2"/>
+          <circle class="k-impact" cx="164" cy="225" r="2"/><rect class="wf-ink" x="170" y="223" width="66" height="5" rx="2"/><rect class="wf-line" x="240" y="223" width="200" height="5" rx="2"/>
+          <rect class="wf-line" x="160" y="235" width="290" height="5" rx="2"/>
+          <rect class="wf-head" x="160" y="245" width="86" height="14" rx="3"/>
+          <rect class="wf-head" x="252" y="245" width="86" height="14" rx="3"/>
+          <rect class="wf-head" x="344" y="245" width="86" height="14" rx="3"/>
+          <rect class="k-risk" x="166" y="250" width="26" height="5" rx="2"/>
+          <rect class="k-forecast" x="258" y="250" width="22" height="5" rx="2"/>
+          <rect class="wf-ok" x="350" y="250" width="30" height="5" rx="2"/>
+          <rect class="wf-warn" x="160" y="266" width="368" height="18" rx="4"/>
+          <rect class="wf-line" x="170" y="272" width="240" height="5" rx="2"/>
+
+          <rect class="wf-ink" x="148" y="302" width="200" height="9" rx="3"/>
+          <rect class="wf-tile" x="148" y="316" width="392" height="22" rx="5" style="stroke:var(--net)"/>
+          <rect class="wf-warn" x="156" y="324" width="34" height="6" rx="3"/>
+          <rect class="wf-line" x="196" y="324" width="250" height="5" rx="2"/>
+          <rect class="wf-tile" x="148" y="342" width="392" height="22" rx="5" style="stroke:var(--accent)"/>
+          <rect class="wf-acc" x="156" y="350" width="34" height="6" rx="3"/>
+          <rect class="wf-line" x="196" y="350" width="220" height="5" rx="2"/>
+          <rect class="wf-tile" x="148" y="368" width="392" height="12" rx="4"/>
+
+          <rect class="wf-ink" x="148" y="392" width="90" height="9" rx="3"/>
+          <rect class="wf-tile" x="148" y="405" width="392" height="22" rx="5"/>
+          <rect class="wf-ink" x="158" y="410" width="40" height="5" rx="2"/><rect class="wf-line" x="214" y="410" width="250" height="5" rx="2"/>
+          <rect class="wf-ink" x="158" y="418" width="52" height="5" rx="2"/><rect class="wf-line" x="214" y="418" width="210" height="5" rx="2"/>
+
+          <line class="wf-grid" x1="148" y1="438" x2="540" y2="438"/>
+          <rect class="wf-line" x="148" y="442" width="80" height="4" rx="2"/>
+
+          <text class="wf-num" x="148" y="462">01</text>
+          <rect class="wf-ink" x="172" y="453" width="190" height="10" rx="3"/>
+          <rect class="wf-acc" x="368" y="455" width="34" height="6" rx="3"/>
+          <rect class="wf-warn" x="148" y="470" width="392" height="18" rx="4"/>
+          <rect class="wf-line" x="158" y="476" width="280" height="5" rx="2"/>
+          <rect class="wf-ink" x="148" y="494" width="300" height="6" rx="2"/>
+          <rect class="wf-line" x="148" y="506" width="390" height="5" rx="2"/>
+          <rect class="wf-line" x="148" y="515" width="376" height="5" rx="2"/>
+          <rect class="wf-line" x="148" y="524" width="388" height="5" rx="2"/>
+          <rect class="wf-line" x="148" y="533" width="300" height="5" rx="2"/>
+          <rect class="wf-tile" x="148" y="542" width="392" height="26" rx="5"/>
+          <rect class="wf-ink" x="158" y="547" width="60" height="5" rx="2"/>
+          <rect class="wf-line" x="158" y="557" width="300" height="4" rx="2"/>
+          <rect class="wf-tile" x="148" y="574" width="194" height="30" rx="5"/>
+          <circle class="k-forecast" cx="158" cy="582" r="3"/><rect class="k-forecast" x="165" y="580" width="50" height="5" rx="2"/>
+          <rect class="wf-line" x="158" y="592" width="170" height="4" rx="2"/>
+          <rect class="wf-tile" x="346" y="574" width="194" height="30" rx="5"/>
+          <circle class="k-risk" cx="356" cy="582" r="3"/><rect class="k-risk" x="363" y="580" width="44" height="5" rx="2"/>
+          <rect class="wf-line" x="356" y="592" width="170" height="4" rx="2"/>
+          <rect class="wf-quote" x="148" y="610" width="392" height="18" rx="4"/>
+          <rect class="wf-acc" x="148" y="610" width="3" height="18"/>
+          <rect class="wf-line" x="158" y="617" width="250" height="4" rx="2"/>
+          <rect class="wf-reco" x="148" y="633" width="392" height="18" rx="4"/>
+          <rect class="wf-ok" x="158" y="639" width="80" height="5" rx="2"/>
+
+          <g class="wf-fade">
+            <text class="wf-num" x="148" y="667">02</text>
+            <rect class="wf-ink" x="172" y="659" width="150" height="8" rx="3"/>
+          </g>
+          <rect class="wf-tile" x="148" y="676" width="392" height="10" rx="4"/>
+          <rect class="wf-tile" x="148" y="692" width="392" height="10" rx="4"/>
+          <rect class="wf-tile" x="148" y="708" width="392" height="10" rx="4"/>
+          <rect class="wf-line" x="148" y="726" width="250" height="4" rx="2"/>
+
+          <path class="lead" d="M452,49 H592"/>
+          <text class="tag" x="600" y="53">plan</text><text class="desc" x="676" y="53">title, kicker, subtitle</text>
+          <path class="lead" d="M416,82 H592"/>
+          <text class="tag" x="600" y="86">meta</text><text class="desc" x="676" y="86">channel, publish date, length, video link</text>
+          <path class="lead" d="M418,98 H430 V102 H592"/>
+          <text class="tag" x="600" y="106">page</text><text class="desc" x="676" y="106">reading time against listening time</text>
+          <path class="lead" d="M544,123 H592"/>
+          <text class="tag" x="600" y="127">verify</text><text class="desc" x="676" y="127">freshness: verdict counts, or not checked</text>
+          <path class="lead" d="M544,190 H592"/>
+          <text class="tag" x="600" y="194">plan</text><text class="desc" x="676" y="194">the 1-minute version: gist and takeaways</text>
+          <path class="lead" d="M544,252 H592"/>
+          <text class="tag" x="600" y="256">plan</text><text class="desc" x="676" y="256">numbers to remember</text>
+          <path class="lead" d="M544,275 H592"/>
+          <text class="tag" x="600" y="279">verify</text><text class="desc" x="676" y="279">heads-up: outdated claims, repeated here</text>
+          <path class="lead" d="M544,340 H592"/>
+          <text class="tag" x="600" y="344">verify</text><text class="desc" x="676" y="344">what has changed: one card per claim</text>
+          <path class="lead" d="M544,416 H592"/>
+          <text class="tag" x="600" y="420">close</text><text class="desc" x="676" y="420">key terms, before the detail</text>
+          <path class="lead" d="M544,479 H592"/>
+          <text class="tag" x="600" y="483">verify</text><text class="desc" x="676" y="483">outdated since the recording, in place</text>
+          <path class="lead" d="M544,494 H550 V536 H544"/>
+          <path class="lead" d="M550,515 H592"/>
+          <text class="tag" x="600" y="519">sections</text><text class="desc" x="676" y="519">the point, then the explanation</text>
+          <path class="lead" d="M544,555 H592"/>
+          <text class="tag" x="600" y="559">sections</text><text class="desc" x="676" y="559">key points worth remembering</text>
+          <path class="lead" d="M544,589 H592"/>
+          <text class="tag" x="600" y="593">sections</text><text class="desc" x="676" y="593">optional boxes: example, caveat, forecast…</text>
+          <path class="lead" d="M544,619 H592"/>
+          <text class="tag" x="600" y="623">sections</text><text class="desc" x="676" y="623">verbatim quote, linked to its moment</text>
+          <path class="lead" d="M544,642 H592"/>
+          <text class="tag" x="600" y="646">sections</text><text class="desc" x="676" y="646">what to do with this</text>
+          <path class="lead" d="M544,681 H592"/>
+          <text class="tag" x="600" y="685">close</text><text class="desc" x="676" y="685">worth watching in the original</text>
+          <path class="lead" d="M544,697 H592"/>
+          <text class="tag" x="600" y="701">close</text><text class="desc" x="676" y="701">test yourself, answers folded away</text>
+          <path class="lead" d="M544,713 H592"/>
+          <text class="tag" x="600" y="717">close</text><text class="desc" x="676" y="717">sources, held to the allow-list</text>
+          <path class="lead" d="M402,728 H420 V733 H592"/>
+          <text class="tag" x="600" y="737">meta</text><text class="desc" x="676" y="737">writer, cost, fallback, check date</text>
+        </svg>
+      </div>
+      <figcaption><b>Figure 3.7.</b> The generated <code>Summary.html</code>, each region tagged with the pass that fills it. A section the web check flagged is marked in the contents as well. Every timestamp is a link that starts the YouTube video at that second.</figcaption>
+    </figure>
+
+    <div class="why"><span>WHY</span><div>
+      <p><strong>One self-contained file.</strong> Inline CSS, no JavaScript, no web fonts, light and dark themes, print rules. It opens from a <code>file://</code> path on a machine with no network, years from now.</p>
+      <p><strong>Outdated claims are flagged in four places.</strong> The top banner, the 1-minute version, "What has changed", and the section where the claim comes up. A reader who stops after one minute is still warned.</p>
+    </div></div>
+  </div>
+</section>
+
+<!-- ================================================================ LEVEL 4 -->
+<section class="level" id="l4">
+  <div class="level-head">
+    <span class="level-num">4</span>
+    <div><span class="eyebrow">Level 4 of 4 · the implementation</span><h2>The machinery</h2></div>
+    <span class="meter" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span>
+  </div>
+  <div class="prose level-intro">
+    <p>Underneath the stages: which process runs what and in which Python environment, what lands on disk, what the data looks like between stages, how the Claude calls are fenced in, and what happens when any of it breaks.</p>
+  </div>
+
+  <!-- ---------------------------------------------------------- processes -->
+  <div class="part" id="processes">
+    <span class="eyebrow">sinribe/pipeline.py _run_worker() · sinribe/workers/ · sinribe-run</span>
+    <h3>Processes and environments</h3>
+    <div class="prose">
+      <p>The window and the job's orchestrator share one Python process. Every model runs in a child process of its own, started when its stage begins and gone when it ends. Two different Python environments are involved, and that is not a preference.</p>
+    </div>
+
+    <figure>
+      <div class="fig-scroll">
+        <svg class="dia" viewBox="0 0 1000 420" role="img" aria-label="Process layout. One Python process in the main environment holds the window on the main thread and the Runner on a worker thread, plus yt-dlp as a library. The Runner starts child processes in order: ffmpeg; diar_worker in the CUDA 13 environment with LD_LIBRARY_PATH stripped; asr_worker in the CUDA 12 environment with the CUDA 12 libraries on LD_LIBRARY_PATH; refine_worker in the CUDA 13 environment; claude -p as a native binary in a scratch directory; and optionally Ollama over local HTTP. The three GPU workers run one at a time. Each worker takes one JSON job on stdin and streams JSON events on stdout.">
+          <defs>
+            <marker id="x-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+            <marker id="x-ahn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-net" d="M0,0 L10,5 L0,10 z"/></marker>
+            <marker id="x-ahg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-gpu" d="M0,0 L10,5 L0,10 z"/></marker>
+          </defs>
+          <rect class="n" x="16" y="40" width="360" height="356" rx="10"/>
+          <text class="cap" x="30" y="62">ONE PYTHON PROCESS · .venv</text>
+
+          <rect class="n" x="40" y="80" width="312" height="64" rx="6"/>
+          <text class="t" x="196" y="105">window</text>
+          <text class="m" x="196" y="125">PySide6 · main thread · ui/</text>
+
+          <path class="e" d="M150,144 V194" marker-end="url(#x-ah)"/>
+          <text class="lab end" x="142" y="174">start, cancel</text>
+          <path class="e" d="M240,200 V150" marker-end="url(#x-ah)"/>
+          <text class="lab" x="248" y="174">progress, log, done</text>
+
+          <rect class="n n-key" x="40" y="200" width="312" height="64" rx="6"/>
+          <text class="t" x="196" y="225">Runner</text>
+          <text class="m" x="196" y="245">worker thread · pipeline.py</text>
+
+          <rect class="n n-net" x="40" y="300" width="148" height="72" rx="6"/>
+          <text class="t" x="114" y="326">yt-dlp</text>
+          <text class="s" x="114" y="344">a library, in process</text>
+          <text class="m" x="114" y="360">fetch.py</text>
+          <rect class="n" x="204" y="300" width="148" height="72" rx="6"/>
+          <text class="t" x="278" y="326">merge, render</text>
+          <text class="s" x="278" y="344">plain Python, CPU</text>
+          <text class="m" x="278" y="360">merge.py, render/</text>
+          <path class="e" d="M114,264 V294" marker-end="url(#x-ah)"/>
+          <path class="e" d="M278,264 V294" marker-end="url(#x-ah)"/>
+
+          <path class="e" d="M352,232 H420"/>
+          <line class="e" x1="420" y1="78" x2="420" y2="378"/>
+          <text class="lab" x="428" y="44">children, in job order: JSON job in, JSON lines out</text>
+
+          <rect class="n" x="450" y="54" width="490" height="48" rx="6"/>
+          <text class="tl" x="466" y="74">ffmpeg</text>
+          <text class="ml" x="466" y="92">system binary · decode and filter to 16 kHz WAV</text>
+          <rect class="n n-gpu" x="450" y="110" width="490" height="48" rx="6"/>
+          <text class="tl" x="466" y="130">diar_worker.py</text>
+          <text class="ml" x="466" y="148">.venv-diar · torch, CUDA 13 · pyannote</text>
+          <text class="lab end" x="928" y="130">LD_LIBRARY_PATH stripped</text>
+          <rect class="n n-gpu" x="450" y="166" width="490" height="48" rx="6"/>
+          <text class="tl" x="466" y="186">asr_worker.py</text>
+          <text class="ml" x="466" y="204">.venv · ctranslate2, CUDA 12 · faster-whisper</text>
+          <text class="lab end" x="928" y="186">LD_LIBRARY_PATH = cu12 wheels</text>
+          <rect class="n n-gpu n-opt" x="450" y="222" width="490" height="48" rx="6"/>
+          <text class="tl" x="466" y="242">refine_worker.py</text>
+          <text class="ml" x="466" y="260">.venv-diar · embedding model only, about 2 s to load</text>
+          <text class="lab end" x="928" y="242">non-fatal</text>
+          <rect class="n n-net n-opt" x="450" y="278" width="490" height="48" rx="6"/>
+          <text class="tl" x="466" y="298">claude -p</text>
+          <text class="ml" x="466" y="316">native binary · cwd ~/.cache/sinribe/claude-code</text>
+          <text class="lab end" x="928" y="298">sandboxed, see below</text>
+          <rect class="n n-opt" x="450" y="334" width="490" height="48" rx="6"/>
+          <text class="tl" x="466" y="354">Ollama</text>
+          <text class="ml" x="466" y="372">a local service · HTTP 127.0.0.1:11435</text>
+          <text class="lab end" x="928" y="354">offline brief only</text>
+
+          <path class="e" d="M420,78 H444" marker-end="url(#x-ah)"/>
+          <path class="e e-gpu" d="M420,134 H444" marker-end="url(#x-ahg)"/>
+          <path class="e e-gpu" d="M420,190 H444" marker-end="url(#x-ahg)"/>
+          <path class="e e-gpu" d="M420,246 H444" marker-end="url(#x-ahg)"/>
+          <path class="e e-net" d="M420,302 H444" marker-end="url(#x-ahn)"/>
+          <path class="e dash" d="M420,358 H444" marker-end="url(#x-ah)"/>
+
+          <path class="e e-gpu" d="M948,112 H956 V268 H948"/>
+          <text class="lab c" x="975" y="186" style="fill:var(--gpu);font-weight:600">GPU</text>
+          <text class="lab c" x="975" y="200" style="fill:var(--gpu)">one</text>
+          <text class="lab c" x="975" y="213" style="fill:var(--gpu)">at a</text>
+          <text class="lab c" x="975" y="226" style="fill:var(--gpu)">time</text>
+          <text class="lab" x="450" y="406">Cancel kills the child. A stage that was killed never writes its checkpoint.</text>
+        </svg>
+      </div>
+      <figcaption><b>Figure 4.1.</b> Who runs where. Each worker reads one JSON job object on stdin, writes one JSON event per line on stdout (progress, result, error) and a human-readable log on stderr. The launcher <code>sinribe-run</code> puts the CUDA 12 libraries on <code>LD_LIBRARY_PATH</code>; the CUDA 13 workers are started with that variable removed.</figcaption>
+    </figure>
+
+    <div class="why"><span>WHY</span><div>
+      <p><strong>Two environments are forced.</strong> faster-whisper's engine, ctranslate2, needs <code>libcublas.so.12</code>. PyTorch 2.13 from PyPI is a CUDA 13 build. They cannot be installed into one environment. Worse, the cuDNN wheels for CUDA 12 and 13 both ship a file called <code>libcudnn.so.9</code>, so a CUDA 13 worker that inherits the CUDA 12 library path loads the wrong one. Hence the stripped variable.</p>
+      <p><strong>One process per model pays for itself.</strong> GPU memory, including the CUDA context, is only truly returned when a process exits. So the peak is the larger stage, not the sum of all stages, which is what lets this run on a 12 GB card that also hosts Ollama. An out-of-memory crash cannot take the window down, and Cancel is a plain kill with no shutdown race.</p>
+      <p><strong>It degrades instead of failing.</strong> The speech worker starts at the precision free memory allows and steps down one tier on an out-of-memory error, rather than dying eight minutes into a four-hour file.</p>
+    </div></div>
+
+    <div class="tbl">
+      <table>
+        <thead><tr><th>Tier</th><th>Device</th><th>Precision</th><th>Batch</th><th>Memory, large-v3</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>GPU</td><td class="num">float16</td><td class="num">16</td><td class="num">about 9.1 GB, measured</td></tr>
+          <tr><td>2</td><td>GPU</td><td class="num">float16</td><td class="num">8</td><td class="num">about 5.5 GB</td></tr>
+          <tr><td>3</td><td>GPU</td><td class="num">float16</td><td class="num">4</td><td class="num">about 4.0 GB</td></tr>
+          <tr><td>4</td><td>GPU</td><td class="num">int8_float16</td><td class="num">4</td><td class="num">about 2.5 GB</td></tr>
+          <tr><td>5</td><td>GPU</td><td class="num">int8_float16</td><td class="num">1</td><td class="num">about 1.8 GB</td></tr>
+          <tr><td>6</td><td>CPU</td><td class="num">int8</td><td class="num">1</td><td class="num">last resort, about 0.5× realtime</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ---------------------------------------------------------- cache -->
+  <div class="part" id="cache">
+    <span class="eyebrow">sinribe/pipeline.py _job_key() and the checkpoint reads</span>
+    <h3>What lands on disk</h3>
+    <div class="prose">
+      <p>Each recording gets a job folder named after a hash of its path, size and modification time. Every checkpoint stores the settings that produced it, so changing a setting recomputes only what that setting affects.</p>
+    </div>
+    <div class="tree" role="list" aria-label="Cache layout">
+      <div class="r d0" role="listitem"><code>~/.cache/sinribe/</code><span>everything Sinribe can recompute</span></div>
+      <div class="r d1" role="listitem"><code>downloads/&lt;video-id&gt;.&lt;ext&gt;</code><span>downloaded audio, kept by default (<code>keep_downloads</code>)</span></div>
+      <div class="r d1" role="listitem"><code>jobs/&lt;16-hex hash&gt;/</code><span>one folder per recording, purged after 14 days</span></div>
+      <div class="r d2" role="listitem"><code>decoded.wav</code><span>16 kHz mono, about 120 MB an hour; deleted when the job ends</span></div>
+      <div class="r d2" role="listitem"><code>decoded-denoise.wav</code><span>one per audio filter a voting pass asks for</span></div>
+      <div class="r d2" role="listitem"><code>diar.json</code><span>speaker turns and the settings that made them</span></div>
+      <div class="r d2" role="listitem"><code>asr.json, asr-pass0.json …</code><span>words per decode pass; reused by any setting that shares the pass</span></div>
+      <div class="r d2" role="listitem"><code>refine.json</code><span>one voice-print verdict per sentence</span></div>
+      <div class="r d1" role="listitem"><code>claude-code/</code><span>empty scratch folder the CLI runs in, so it finds no project instructions</span></div>
+      <div class="r d0" role="listitem"><code>~/.config/sinribe/</code><span>settings, never in the repo</span></div>
+      <div class="r d1" role="listitem"><code>config.json</code><span>every option, migrated forward on load</span></div>
+      <div class="r d1" role="listitem"><code>hf_token</code> · <code>anthropic_key</code><span>credentials, mode 600, both git-ignored</span></div>
+    </div>
+    <div class="why"><span>WHY</span><div>
+      <p><strong>Resume is free, so it has to be honest.</strong> A finished four-hour job comes back in 1.3 s. That speed once leaked into the reported numbers: a run at the 10.7× setting printed 29.5× because it read three passes from cache. Now the runner counts which passes it actually decoded, prints a speed only when all of them ran, and lists what it reused.</p>
+      <p><strong>A killed stage writes nothing.</strong> An early bug saved a checkpoint from a cancelled diarization, and the resumed job silently produced a transcript with no speaker separation at all.</p>
+    </div></div>
+  </div>
+
+  <!-- ---------------------------------------------------------- data -->
+  <div class="part" id="data">
+    <span class="eyebrow">sinribe/merge.py dataclasses · the result dict · summary/schema.py</span>
+    <h3>The data between stages</h3>
+    <div class="prose">
+      <p>Four small dataclasses carry the transcription half. Everything after the merge is a plain dict, which is also what the sidecar JSON stores, so renaming a speaker and re-exporting never touches the GPU.</p>
+    </div>
+
+    <figure>
+      <div class="fig-scroll">
+        <svg class="dia" viewBox="0 0 1000 380" role="img" aria-label="Data flow. DiarTurn, Word and SentenceScore records feed merge, which produces Turn records. Turns go into the result dict, which is rendered to the transcript files. The result also goes to summarize, which produces the brief dict, rendered to Summary.html and Summary.md.">
+          <defs>
+            <marker id="t-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+            <marker id="t-ahn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-net" d="M0,0 L10,5 L0,10 z"/></marker>
+          </defs>
+          <rect class="n n-gpu" x="16" y="30" width="230" height="50" rx="6"/>
+          <text class="tm" x="131" y="51">DiarTurn</text>
+          <text class="m" x="131" y="69">start, end, speaker "SPEAKER_01"</text>
+          <rect class="n n-gpu" x="16" y="92" width="230" height="50" rx="6"/>
+          <text class="tm" x="131" y="113">Word</text>
+          <text class="m" x="131" y="131">start, end, word, prob, speaker</text>
+          <rect class="n n-gpu n-opt" x="16" y="154" width="230" height="50" rx="6"/>
+          <text class="tm" x="131" y="175">SentenceScore</text>
+          <text class="m" x="131" y="193">speaker, margin</text>
+
+          <rect class="n n-key" x="290" y="76" width="150" height="82" rx="6"/>
+          <text class="tm" x="365" y="100">merge()</text>
+          <text class="s" x="365" y="118">assign, vote per</text>
+          <text class="s" x="365" y="133">sentence, smooth,</text>
+          <text class="s" x="365" y="148">group, label</text>
+          <path class="e" d="M246,55 H266 V100 H284" marker-end="url(#t-ah)"/>
+          <path class="e" d="M246,117 H284" marker-end="url(#t-ah)"/>
+          <path class="e" d="M246,179 H266 V134 H284" marker-end="url(#t-ah)"/>
+
+          <rect class="n" x="484" y="76" width="220" height="82" rx="6"/>
+          <text class="tm" x="594" y="100">Turn</text>
+          <text class="m" x="594" y="118">speaker "Person 2", raw</text>
+          <text class="m" x="594" y="133">start, end, text</text>
+          <text class="m" x="594" y="148">words[]</text>
+          <path class="e" d="M440,117 H478" marker-end="url(#t-ah)"/>
+
+          <rect class="n" x="748" y="30" width="236" height="174" rx="6"/>
+          <text class="tm" x="866" y="54">result dict</text>
+          <text class="m" x="866" y="76">turns, stats</text>
+          <text class="m" x="866" y="94">source, title, uploader</text>
+          <text class="m" x="866" y="112">published, chapters</text>
+          <text class="m" x="866" y="130">duration, language, model</text>
+          <text class="m" x="866" y="148">asr_realtime_factor</text>
+          <text class="m" x="866" y="166">asr_passes_ran / _total</text>
+          <text class="m" x="866" y="184">reused_stages</text>
+          <path class="e" d="M704,117 H742" marker-end="url(#t-ah)"/>
+
+          <rect class="n" x="748" y="256" width="236" height="58" rx="6"/>
+          <text class="tm" x="866" y="280">.md  .sinribe.json</text>
+          <text class="tm" x="866" y="298">.srt  .vtt</text>
+          <path class="e" d="M866,204 V250" marker-end="url(#t-ah)"/>
+          <text class="lab" x="874" y="232">render/</text>
+
+          <rect class="n n-net n-opt" x="484" y="256" width="220" height="58" rx="6"/>
+          <text class="tm" x="594" y="280">summarize()</text>
+          <text class="s" x="594" y="298">turns as text + metadata</text>
+          <path class="e e-net" d="M790,204 V230 H594 V250" marker-end="url(#t-ahn)"/>
+
+          <rect class="n" x="226" y="244" width="214" height="110" rx="6"/>
+          <text class="tm" x="333" y="266">brief dict</text>
+          <text class="m" x="333" y="286">title, gist, takeaways</text>
+          <text class="m" x="333" y="302">sections[], checks[]</text>
+          <text class="m" x="333" y="318">developments[], glossary</text>
+          <text class="m" x="333" y="334">quiz, sources, meta</text>
+          <path class="e" d="M484,285 H446" marker-end="url(#t-ah)"/>
+
+          <rect class="n" x="16" y="256" width="166" height="58" rx="6"/>
+          <text class="tm" x="99" y="280">Summary.html</text>
+          <text class="tm" x="99" y="298">Summary.md</text>
+          <path class="e" d="M226,285 H188" marker-end="url(#t-ah)"/>
+          <text class="lab" x="16" y="340">render/webpage.py</text>
+        </svg>
+      </div>
+      <figcaption><b>Figure 4.2.</b> From records to files. <code>speaker</code> on a <code>Word</code> is the raw diarization label until the merge; <code>Turn.speaker</code> is the display name, and <code>Turn.raw</code> keeps the original so the speaker panel can rename consistently. The brief is rebuilt from text, so renaming speakers later does not change an existing brief.</figcaption>
+    </figure>
+  </div>
+
+  <!-- ---------------------------------------------------------- claude -->
+  <div class="part" id="claude">
+    <span class="eyebrow">sinribe/summary/providers.py · pick() and three classes</span>
+    <h3>The Claude calls, fenced in</h3>
+    <div class="prose">
+      <p>Three writers sit behind one narrow interface: <code>ask_json()</code>, <code>ask_text()</code> and <code>research()</code>, which returns the report <em>and</em> the sources the tools returned. With <code>summary_provider: "auto"</code>, <code>pick()</code> tries Claude Code, then the API, then Ollama, and keeps a list of what it skipped and why. The log prints it, the window asks before starting, and the brief's footer states it.</p>
+    </div>
+
+    <div class="tbl wide">
+      <table>
+        <thead><tr><th></th><th>Claude Code (default)</th><th>Claude API</th><th>Local Ollama</th></tr></thead>
+        <tbody>
+          <tr><td>Transport</td><td><code>claude -p</code> subprocess, prompt on stdin</td><td>Official SDK, every call streamed</td><td>Plain HTTP to <code>:11435</code></td></tr>
+          <tr><td>Needs</td><td>The claude.ai login already on the machine</td><td><code>ANTHROPIC_API_KEY</code>, <code>~/.config/sinribe/anthropic_key</code>, or <code>ant auth login</code></td><td><code>gemma3:4b</code> running locally</td></tr>
+          <tr><td>JSON shape</td><td>Schema in the prompt, parsed and repaired</td><td>Enforced by the decoder (<code>json_schema</code>)</td><td>Enforced by the decoder (Ollama grammar)</td></tr>
+          <tr><td>Transcript reuse</td><td>One resumed session per job</td><td>Same prefix behind a cache breakpoint</td><td>Notes digest in each prompt</td></tr>
+          <tr><td>Web check</td><td><code>WebSearch</code> + <code>WebFetch</code> in a separate unsaved session, <code>stream-json</code></td><td><code>web_search</code> (20 uses) and <code>web_fetch</code> (10 uses) server tools</td><td>None: asking for it stops the job at the start</td></tr>
+          <tr><td>Model</td><td><code>claude-opus-5-5</code>, effort high</td><td><code>claude-opus-5-5</code>, effort high</td><td><code>gemma3:4b</code></td></tr>
+          <tr><td>Verified</td><td>End to end with the web check, from the app menu's PATH</td><td>Request shape against a stub only</td><td>End to end on 25 minutes of audio</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <figure>
+      <div class="fig-scroll">
+        <svg class="dia" viewBox="0 0 1000 232" role="img" aria-label="Claude Code session layout. Session A starts at the plan call with the transcript and the prompt. Verify, sections 1 to N and the close call resume session A and send only their prompt. Research runs in a separate unsaved session B with WebSearch and WebFetch, starting from the plan's claims and outline. Its report and the URLs its tools returned feed the verify call.">
+          <defs>
+            <marker id="c-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-acc" d="M0,0 L10,5 L0,10 z"/></marker>
+            <marker id="c-ahn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-net" d="M0,0 L10,5 L0,10 z"/></marker>
+          </defs>
+          <path class="e e-acc" d="M16,52 V44 H968 V52"/>
+          <text class="cap" x="16" y="34">SESSION A</text>
+          <text class="lab" x="92" y="34">transcript sent once at the plan call, every later call adds --resume &lt;id&gt;</text>
+
+          <rect class="n n-key" x="16" y="64" width="130" height="48" rx="6"/>
+          <text class="t" x="81" y="84">plan</text>
+          <text class="s" x="81" y="101">transcript + prompt</text>
+          <rect class="n" x="334" y="64" width="120" height="48" rx="6"/>
+          <text class="t" x="394" y="84">verify</text>
+          <text class="s" x="394" y="101">prompt only</text>
+          <rect class="n" x="474" y="64" width="110" height="48" rx="6"/>
+          <text class="t" x="529" y="84">section 1</text>
+          <text class="s" x="529" y="101">prompt only</text>
+          <text class="t" x="606" y="93" style="fill:var(--muted)">…</text>
+          <rect class="n" x="628" y="64" width="110" height="48" rx="6"/>
+          <text class="t" x="683" y="84">section N</text>
+          <text class="s" x="683" y="101">prompt only</text>
+          <rect class="n" x="758" y="64" width="130" height="48" rx="6"/>
+          <text class="t" x="823" y="84">close</text>
+          <text class="s" x="823" y="101">prompt only</text>
+
+          <path class="e e-acc" d="M146,88 H328" marker-end="url(#c-ah)"/>
+          <text class="labm c" x="237" y="80">--resume</text>
+          <path class="e e-acc" d="M454,88 H468" marker-end="url(#c-ah)"/>
+          <path class="e e-acc" d="M584,88 H596" marker-end="url(#c-ah)"/>
+          <path class="e e-acc" d="M616,88 H622" marker-end="url(#c-ah)"/>
+          <path class="e e-acc" d="M738,88 H752" marker-end="url(#c-ah)"/>
+
+          <rect class="n n-net" x="170" y="136" width="140" height="48" rx="6"/>
+          <text class="t" x="240" y="156">research</text>
+          <text class="s" x="240" y="173">WebSearch + WebFetch</text>
+          <path class="e e-net dash" d="M81,112 V160 H164" marker-end="url(#c-ahn)"/>
+          <text class="lab" x="88" y="128">claims + outline</text>
+          <path class="e e-net dash" d="M310,160 H394 V118" marker-end="url(#c-ahn)"/>
+          <text class="lab" x="316" y="176">report + tool URLs</text>
+
+          <path class="e e-net" d="M170,196 V204 H310 V196"/>
+          <text class="cap" x="170" y="222">SESSION B</text>
+          <text class="lab" x="242" y="222">research only: stream-json, never saved, never resumed</text>
+        </svg>
+      </div>
+      <figcaption><b>Figure 4.3.</b> One job, two sessions. The transcript is sent once; on a resumed turn the measured cost was 2 input tokens against 11,677 read from cache. Every resumed turn still re-reads the conversation so far, which is why cost grows with the number of sections. Research runs apart, so nothing it reads displaces the transcript and nothing it does lands in your <code>/resume</code> list.</figcaption>
+    </figure>
+
+    <div class="prose" style="margin-top:22px">
+<pre><code>claude -p --model claude-opus-5-5 --effort high \
+          --restricted --strict-mcp-config --disable-slash-commands \
+          --system-prompt "…" [--resume &lt;session_id&gt;] \
+          --output-format json --tools ""                      # writing passes
+#   or:   --output-format stream-json --verbose \
+#         --tools WebSearch WebFetch --allowedTools WebSearch WebFetch \
+#         --permission-mode dontAsk --no-session-persistence   # research only
+
+# --restricted         no shell, no code, no WebFetch unless named
+# --strict-mcp-config  no MCP servers, no claude.ai connectors
+# cwd                  ~/.cache/sinribe/claude-code: no CLAUDE.md
+# env                  DISABLE_AUTOUPDATER=1: no self-update mid-job</code></pre>
+    </div>
+    <div class="why"><span>WHY</span><div>
+      <p><strong>Claude Code is the default because it needs no key.</strong> It is the same login you already use, billed as subscription usage. The API path stays for anyone who has a key and wants the output shape enforced by the decoder.</p>
+      <p><strong>It is found outside PATH on purpose.</strong> An npm install with a user prefix puts <code>claude</code> in <code>~/.npm-global/bin</code>, which only <code>~/.bashrc</code> adds to PATH. Started from the app menu, Sinribe could not see it, and "auto" quietly fell back to a 4-billion-parameter local model. The lookup now checks the installers' folders after PATH, and a fallback is never silent again.</p>
+    </div></div>
+  </div>
+
+  <!-- ---------------------------------------------------------- failures -->
+  <div class="part" id="failures">
+    <span class="eyebrow">pipeline.py · StageError, Cancelled, summary_error</span>
+    <h3>When something breaks</h3>
+    <div class="prose">
+      <p>The two halves follow opposite error policies. The transcription half retries and degrades, because a four-hour job should not die on a recoverable error. The brief is loud, because you ticked a box for it and a quietly missing brief looks like a bug.</p>
+    </div>
+    <div class="tbl wide">
+      <table>
+        <thead><tr><th>Where it breaks</th><th>What happens</th><th>What you keep</th></tr></thead>
+        <tbody>
+          <tr><td>Brief's writer unavailable</td><td>Setup error at second zero; the window usually catches it first, as a dialog.</td><td>Nothing was started</td></tr>
+          <tr><td>Web check asked, writer cannot search</td><td>Setup error at second zero, naming why the Claude writers were skipped.</td><td>Nothing was started</td></tr>
+          <tr><td>Model not installed</td><td>Setup error before decoding. Workers run offline, so they cannot fetch it.</td><td>Nothing was started</td></tr>
+          <tr><td>Download</td><td>A one-line explanation: age-restricted, private, members-only, unavailable, offline.</td><td>Nothing yet</td></tr>
+          <tr><td>GPU out of memory</td><td>The speech worker retries one precision tier down.</td><td>The job continues</td></tr>
+          <tr><td>Whisper collapses</td><td>Fewer than half of the detected speech seconds became words: a warning in the log.</td><td>A transcript, flagged</td></tr>
+          <tr><td>Voice-print check</td><td>Logged; the diarizer's labels stand.</td><td>The full transcript</td></tr>
+          <tr><td>Cancel</td><td>The child process is killed; the interrupted stage writes no checkpoint.</td><td>Every finished stage</td></tr>
+          <tr><td>Web check (research or verify)</td><td>Caught, logged, and stated at the top of the brief.</td><td>The brief, without the check</td></tr>
+          <tr><td>One section</td><td>Logged and skipped.</td><td>Every other section</td></tr>
+          <tr><td>Plan, close or notes</td><td>The brief is not written; the window shows why.</td><td>All transcript files</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ---------------------------------------------------------- cost -->
+  <div class="part" id="cost">
+    <span class="eyebrow">README.md · HANDOFF.md measurements</span>
+    <h3>What a run costs</h3>
+    <div class="figs">
+      <div><b>10 m 58 s</b><span>4 h, 3 speakers, one pass, 26 Jul 2026</span></div>
+      <div><b>10.7×</b><span>default setting, transcription only</span></div>
+      <div><b>11.3 GiB</b><span>peak GPU memory of 12.2 on the 4 h run</span></div>
+      <div><b>5 m 24 s</b><span>brief + web check, 10 m 45 s video</span></div>
+      <div><b>$3.25</b><span>that brief, as subscription usage</span></div>
+    </div>
+    <div class="tbl">
+      <table>
+        <thead><tr><th>Brief</th><th>Model</th><th>Wall clock</th><th>Usage</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td>10 m 45 s video, web check, word budget (8 Oct 2026)</td><td class="num">claude-opus-5-5</td><td class="num">5 m 24 s</td><td class="num">$3.25</td><td>3 sections, 14 claims checked, 148 tool sources, 3 min read</td></tr>
+          <tr><td>Same video, no word budget yet (8 Oct 2026)</td><td class="num">claude-opus-5-5</td><td class="num">6 m 39 s</td><td class="num">$4.09</td><td>13 claims checked, 13 min read</td></tr>
+          <tr><td>2 h interview, research on, before the rework (16 Sep 2026)</td><td class="num">claude-opus-5</td><td class="num">18 min</td><td class="num">$17.97</td><td>12 sections, 15 calls; not yet re-measured with the budget</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="prose" style="margin-top:18px">
+      <p>Levers, in order of effect: leave the web check off; set <code>"summary_max_sections": 8</code>; set <code>"summary_max_claims": 8</code>; set <code>"summary_model": "claude-sonnet-5-5"</code>; or write the brief with <code>--summary-provider ollama</code>, which is free, offline and much thinner.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================ WHY -->
+<section class="extra" id="why">
+  <span class="eyebrow">the decisions, in one place</span>
+  <h2>Why it is built like this</h2>
+  <div class="prose">
+    <p>Every unusual choice above has one of four kinds of reason. Some were forced by the libraries or the hardware. Some were settled by measuring the alternatives. Some come from failures seen in real runs, without a benchmark behind them. The rest are deliberate policies about privacy, honesty and convenience.</p>
+  </div>
+  <div class="chips-key">
+    <span><span class="chip forced">FORCED</span>no real alternative</span>
+    <span><span class="chip measured">MEASURED</span>alternatives scored</span>
+    <span><span class="chip observed">OBSERVED</span>seen failing in real runs</span>
+    <span><span class="chip policy">POLICY</span>chosen on principle</span>
+  </div>
+
+  <div class="decisions">
+    <article>
+      <span class="chip forced">FORCED</span>
+      <h4>Two Python environments, one process per GPU model</h4>
+      <p class="instead">Instead of one environment and threads.</p>
+      <p>ctranslate2 needs CUDA 12, PyTorch ships CUDA 13, and their cuDNN libraries share a file name. The split also returns GPU memory between stages, isolates crashes, and makes Cancel a kill.</p>
+    </article>
+    <article>
+      <span class="chip policy">POLICY</span>
+      <h4>Transcription never leaves the machine</h4>
+      <p class="instead">Instead of a cloud speech API.</p>
+      <p>Recordings are often private interviews. The speech workers run with the model hub forced offline; only the link download and the optional brief use the network, and the brief can run locally too.</p>
+    </article>
+    <article>
+      <span class="chip measured">MEASURED</span>
+      <h4>Speakers decided per sentence, then checked by voice</h4>
+      <p class="instead">Instead of per word or per whisper segment.</p>
+      <p>Questions merged into answers fell from 28 to 18 with the sentence vote and to 11 with voice prints, on a 34-minute interview, for about 5 seconds of extra work.</p>
+    </article>
+    <article>
+      <span class="chip measured">MEASURED</span>
+      <h4>Vote across passes and models</h4>
+      <p class="instead">Instead of a wider beam search.</p>
+      <p>Three voted passes reach 20.4 % against 21.3 % for one. Beam 20 costs 5.6× the compute and scores 21.6 %. The biggest step is adding a differently trained model.</p>
+    </article>
+    <article>
+      <span class="chip measured">MEASURED</span>
+      <h4>Vanilla large-v3 by default</h4>
+      <p class="instead">Instead of the German fine-tune.</p>
+      <p>On far-field Bavarian speech the fine-tune scored 24.8 % against 21.3 %. It stays installable for clean, close-miked German, where it may win.</p>
+    </article>
+    <article>
+      <span class="chip measured">MEASURED</span>
+      <h4>Point at doubtful words instead of chasing the floor</h4>
+      <p class="instead">Instead of ever more passes.</p>
+      <p>8.7 % of words are wrong in every configuration tried. But 57 % of the words below 0.5 confidence are wrong, so listing those passages turns proofreading into a checklist.</p>
+    </article>
+    <article>
+      <span class="chip policy">POLICY</span>
+      <h4>Every number the app prints is a measurement</h4>
+      <p class="instead">Instead of wall clock and simulations.</p>
+      <p>Speed is transcription only and suppressed when passes came from cache. Slider figures produced under a bug were withdrawn rather than kept. A number the app prints is a claim the user will check.</p>
+    </article>
+    <article>
+      <span class="chip policy">POLICY</span>
+      <h4>The transcript is saved before the brief starts</h4>
+      <p class="instead">Instead of one job that succeeds or fails as a whole.</p>
+      <p>The brief depends on the network and a model; the transcript is the job you asked for. A brief failure is shown, and the transcript files are already on disk.</p>
+    </article>
+    <article>
+      <span class="chip observed">OBSERVED</span>
+      <h4>Check the brief's writer at second zero</h4>
+      <p class="instead">Instead of discovering it after transcription.</p>
+      <p>A missing login found after two hours of transcription wastes the two hours. The check reads the stored login and costs nothing.</p>
+    </article>
+    <article>
+      <span class="chip policy">POLICY</span>
+      <h4>Claude Code as the default writer</h4>
+      <p class="instead">Instead of requiring an API key.</p>
+      <p>It uses the login already on the machine, billed as subscription usage. One resumed session per job reads the transcript from cache: 2 input tokens against 11,677 cached on a resumed turn.</p>
+    </article>
+    <article>
+      <span class="chip observed">OBSERVED</span>
+      <h4>Plan first, then one call per section</h4>
+      <p class="instead">Instead of one call for the whole brief.</p>
+      <p>One long call writes a strong first section and a tired last one. With the outline in view, each section stays distinct, and verdicts can arrive before the prose is written.</p>
+    </article>
+    <article>
+      <span class="chip measured">MEASURED</span>
+      <h4>A word budget for the brief</h4>
+      <p class="instead">Instead of letting the model decide the length.</p>
+      <p>Without it, a 10-minute video produced a 13-minute read, longer than listening. At 15 % of the spoken words the same video reads in 3 minutes.</p>
+    </article>
+    <article>
+      <span class="chip policy">POLICY</span>
+      <h4>Sources only from what the search returned</h4>
+      <p class="instead">Instead of URLs the model writes.</p>
+      <p>A model can name a plausible source it never read. Tool results are read from the stream; a verdict without such a source becomes "unverified", and links in the prose meet the same rule.</p>
+    </article>
+    <article>
+      <span class="chip observed">OBSERVED</span>
+      <h4>Find the CLI beyond PATH, and never fall back silently</h4>
+      <p class="instead">Instead of trusting the desktop session's PATH.</p>
+      <p>From the app menu, <code>claude</code> looked uninstalled and "auto" used a small local model without a word. Now the install folders are searched, and any fallback is logged, asked about and printed in the brief.</p>
+    </article>
+  </div>
+</section>
+
+<!-- ================================================================ MAP -->
+<section class="extra" id="map">
+  <span class="eyebrow">file map</span>
+  <h2>Where to change what</h2>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>File</th><th>Change it when you want to…</th></tr></thead>
+      <tbody>
+        <tr><td><code>sinribe/pipeline.py</code></td><td>change stage order, checkpoints, progress shares, cancellation, when the writer is probed, or how failures are reported</td></tr>
+        <tr><td><code>sinribe/fetch.py</code></td><td>support a site quirk, change the download format or cache, keep more metadata, reword a download error</td></tr>
+        <tr><td><code>sinribe/audio.py</code></td><td>change the ffmpeg probe, the decode, or the audio filters a pass can ask for</td></tr>
+        <tr><td><code>sinribe/workers/diar_worker.py</code></td><td>change the pyannote pipeline, speaker-count hints or its memory handling</td></tr>
+        <tr><td><code>sinribe/workers/asr_worker.py</code></td><td>change how whisper is called inside its process</td></tr>
+        <tr><td><code>sinribe/workers/refine_worker.py</code></td><td>change how voice prints are built or which turns are trusted</td></tr>
+        <tr><td><code>sinribe/merge.py</code></td><td>change word-to-speaker assignment, the sentence vote, smoothing, or where turns break</td></tr>
+        <tr><td><code>sinribe/rover.py</code></td><td>change the per-word vote</td></tr>
+        <tr><td><code>sinribe/presets.py</code></td><td>change the quality slider: positions, passes, measured figures, how speed is reported</td></tr>
+        <tr><td><code>sinribe/eval/</code></td><td>score against a human transcript, sweep settings, find the ceiling: <code>./sinribe-eval</code></td></tr>
+        <tr><td><code>sinribe/summary/build.py</code></td><td>change a prompt, the brief's structure, the claim selection, the word budget, or a pass</td></tr>
+        <tr><td><code>sinribe/summary/providers.py</code></td><td>change how a writer is called, where the CLI is looked for, its flags, timeouts or research tools</td></tr>
+        <tr><td><code>sinribe/summary/schema.py</code></td><td>add a field to the brief, change a limit, the verdict statuses, the dash rule, or the link allow-list</td></tr>
+        <tr><td><code>sinribe/render/</code></td><td>change the Markdown transcript, subtitles, sidecar JSON, or the look and order of the brief</td></tr>
+        <tr><td><code>sinribe/ui/</code></td><td>change the window, the slider, checkboxes, speaker panel, the fallback dialog or the done card</td></tr>
+        <tr><td><code>sinribe/config.py</code></td><td>change a default, or migrate an old setting forward</td></tr>
+        <tr><td><code>sinribe-run</code>, <code>install.sh</code></td><td>change the launcher's CUDA 12 library path, how both environments and the models are installed, the desktop entry</td></tr>
+        <tr><td><code>tests/</code></td><td>cover what you changed: 396 tests across 8 files, under a second, <code>./.venv/bin/python -m pytest tests/ -q</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="prose" style="margin-top:22px">
+    <p>Read <code>HANDOFF.md</code> before changing anything. It records the failures real runs hit and what fixed each one, and most of the odd-looking code on this page exists because of one of them.</p>
+  </div>
+</section>
+
+<footer class="page">
+  Written from the source of <code>sinribe/</code> and the measurements in <code>README.md</code> and <code>HANDOFF.md</code>. If the code and this page disagree, the code is right.
+</footer>
+
+</div>
+</body>
+</html>
