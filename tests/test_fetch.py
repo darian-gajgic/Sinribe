@@ -6,6 +6,7 @@ link, but the pure logic around it is worth pinning down.
 
 from __future__ import annotations
 
+from sinribe import fetch
 from sinribe.fetch import cached_download, is_url, purge_old_downloads
 from sinribe.pipeline import STAGE_SHARES, safe_stem, stage_spans
 
@@ -132,3 +133,33 @@ class TestPurgeDownloads:
 
     def test_missing_dir_is_not_an_error(self, tmp_path):
         assert purge_old_downloads(tmp_path / "nope", 14) == 0
+
+
+class TestMetadata:
+    """The publication date is what lets the web check call a claim outdated at all."""
+
+    def test_upload_date_becomes_iso(self):
+        meta = fetch._meta_from_info({"id": "x", "upload_date": "20260803"}, "u")
+        assert meta.published == "2026-08-03"
+
+    def test_release_date_wins_over_upload_date(self):
+        meta = fetch._meta_from_info({"id": "x", "upload_date": "20260803",
+                                      "release_date": "20260801"}, "u")
+        assert meta.published == "2026-08-01"
+
+    def test_a_timestamp_is_used_when_there_is_no_date(self):
+        meta = fetch._meta_from_info({"id": "x", "timestamp": 1754179200}, "u")
+        assert meta.published == "2025-08-03"
+
+    def test_no_date_is_empty_not_invented(self):
+        assert fetch._meta_from_info({"id": "x", "upload_date": "soon"}, "u").published == ""
+
+    def test_description_and_chapters_are_kept(self):
+        meta = fetch._meta_from_info({
+            "id": "x", "description": "Links: https://a.test",
+            "chapters": [{"title": "Intro", "start_time": 0, "end_time": 60},
+                         {"title": "", "start_time": 60}, "junk",
+                         {"title": "Main", "start_time": 60.5}]}, "u")
+        assert meta.description == "Links: https://a.test"
+        assert meta.chapters == [{"title": "Intro", "start": 0.0},
+                                 {"title": "Main", "start": 60.5}]

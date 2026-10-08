@@ -20,12 +20,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterator
 
-from . import audio, enrich as enrich_mod, fetch, presets, rover
+from . import audio, enrich as enrich_mod, fetch, presets, rover, summary as summary_mod
 from .config import (
     DOWNLOADS_DIR, JOBS_DIR, hf_token, model_available, resolve_model, supports_hotwords,
 )
 from .merge import DiarTurn, SentenceScore, Word, merge, sentence_spans
-from .render import markdown, sidecar, subtitles
+from .render import markdown, sidecar, subtitles, webpage
 from .textfmt import human_duration
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -43,6 +43,11 @@ STAGE_SHARES = {
     "transcribe": 0.62,
     "refine": 0.03,
     "finish": 0.06,
+    # A dozen model calls, each writing a section of real prose, plus an optional research pass
+    # that waits on web searches. Measured against transcription rather than guessed: on a
+    # two-hour podcast at the default rung, decoding takes about twelve minutes and the summary
+    # about five, and this share reproduces that ratio.
+    "summarise": 0.25,
 }
 
 
@@ -64,13 +69,16 @@ def _pass_cost(decode: dict, model: str) -> float:
     return max(cost, 0.05)
 
 
-def stage_spans(with_fetch: bool, with_refine: bool = True) -> dict[str, tuple[float, float]]:
+def stage_spans(with_fetch: bool, with_refine: bool = True,
+                with_summary: bool = False) -> dict[str, tuple[float, float]]:
     """Map each stage to its (start, width) on the 0..1 progress bar."""
     shares = dict(STAGE_SHARES)
     if not with_fetch:
         shares.pop("fetch")
     if not with_refine:
         shares.pop("refine")
+    if not with_summary:
+        shares.pop("summarise")
     total = sum(shares.values())
     spans: dict[str, tuple[float, float]] = {}
     acc = 0.0
@@ -243,6 +251,17 @@ class Runner:
         self._phase = ""
         self._t_phase = 0.0
         self._meta: fetch.MediaMeta | None = None
+        # What this run served from disk instead of computing. A resumed job is fast for reasons
+        # that have nothing to do with the quality setting, and reporting its wall clock as a
+        # realtime factor makes the slider look like it was ignored — 29.5x on a rung that says
+        # 10.7x, because three cached passes cost nothing and only the diarization re-ran.
+        self._reused: list[str] = []
+        # Seconds actually spent decoding, and how many passes that covers. The rungs' measured
+        # figures are transcription-only (diarization cached), so this is the number that is
+        # comparable with them; end-to-end wall clock is not.
+        self._asr_seconds = 0.0
+        self._asr_ran = 0
+        self._asr_total = 0
 
     # -- control ---------------------------------------------------------------------
     def cancel(self) -> None:
@@ -368,13 +387,20 @@ class Runner:
             self._proc = None
 
     # -- stages ----------------------------------------------------------------------
-    def _decode(self, info: audio.MediaInfo, cache: Path) -> Path:
+    def _decode(self, info: audio.MediaInfo, cache: Path, chain: str | None = None) -> Path:
         # Conditioned audio gets its own filename so the untouched decode stays cached alongside
         # it — a sweep that compares filters would otherwise re-decode the source every time.
-        chain = str(presets.decode_settings(self.cfg).get("audio_filter") or "")
+        # `chain` is passed explicitly by the voting passes: a pass that asks for filtered audio
+        # has to GET filtered audio. Reading the filter off self.cfg here was a silent no-op for
+        # them, because only the extra passes ever set one, so the denoise and clean passes
+        # decoded the untouched WAV and returned output byte-identical to the pivot — duplicate
+        # ballots dressed up as independent opinions.
+        if chain is None:
+            chain = str(presets.decode_settings(self.cfg).get("audio_filter") or "")
         wav = cache / (f"decoded-{chain}.wav" if chain else "decoded.wav")
         if wav.exists() and wav.stat().st_size > 1024:
             self.log(f"reusing decoded audio ({wav.stat().st_size / 1e6:.0f} MB)")
+            self._reused.append(f"decoded audio ({chain})" if chain else "decoded audio")
             self._frac(1.0)
             return wav
         self.log(f"decoding {info.codec} -> 16 kHz mono WAV"
@@ -404,6 +430,7 @@ class Runner:
                 if data.get("settings") == settings:
                     turns = [DiarTurn(**t) for t in data["turns"]]
                     self.log(f"reusing diarization checkpoint ({len(turns)} turns)")
+                    self._reused.append("diarization")
                     self._frac(1.0)
                     return turns
             except (json.JSONDecodeError, KeyError, TypeError):
@@ -461,6 +488,7 @@ class Runner:
                 if data.get("settings") == settings:
                     scores = [SentenceScore(**s) for s in data["scores"]]
                     self.log(f"reusing speaker-refinement checkpoint ({len(scores)} sentences)")
+                    self._reused.append("speaker refinement")
                     self._frac(1.0)
                     return scores
             except (json.JSONDecodeError, KeyError, TypeError):
@@ -495,27 +523,45 @@ class Runner:
                                       "scores": [s.__dict__ for s in scores]}))
         return scores
 
-    def _transcribe(self, wav: Path, duration: float, cache: Path) -> tuple[list[Word], dict]:
+    def _transcribe(self, wav: Path, duration: float, cache: Path,
+                    info: audio.MediaInfo | None = None) -> tuple[list[Word], dict]:
         """Decode the audio, voting across several passes when the quality rung asks for it."""
         rung = presets.for_target(self.cfg.get("speed_target", 20))
         extra = list(getattr(rung, "extra_passes", ()) or ())
         if not extra:
+            self._asr_total = 1
             return self._transcribe_once(wav, duration, cache)
 
         # Several decodes, then a word-by-word majority vote. This is the only thing measured
         # that converts more compute into fewer errors: 21.3 % for one pass against 20.1 % for
         # five, because the passes chunk the audio differently and so make *different* mistakes.
         passes: list[list[Word]] = []
-        info: dict = {}
+        asr_info: dict = {}
         base_overrides = dict(self.cfg.get("decode_overrides") or {})
+        base_chain = str(presets.decode_settings(self.cfg).get("audio_filter") or "")
         plans = []
+        seen_plans: dict[tuple, int] = {}
         for override in [{}] + extra:
             job_cfg = dict(self.cfg)
             job_cfg["decode_overrides"] = {**base_overrides, **override}
+            # Two passes that resolve to the same model and the same decode settings produce the
+            # same words, and a duplicate ballot does not break a tie — it doubles one opinion's
+            # weight and outvotes the passes that disagree with it. This happens for real: pin a
+            # model in the dropdown and the "different model" pass silently becomes a re-run of
+            # the pivot. Drop it rather than pay GPU minutes to corrupt the vote.
+            key = (presets.model_for(job_cfg),
+                   tuple(sorted(presets.decode_settings(job_cfg).items())))
+            if key in seen_plans:
+                self.log(f"pass {len(plans) + 1} dropped — identical to pass "
+                         f"{seen_plans[key] + 1} ({key[0]}); a duplicate would just double that "
+                         f"pass's vote")
+                continue
+            seen_plans[key] = len(plans)
             plans.append(job_cfg)
         # Give the bar each pass's real share up front, so it advances evenly instead of racing
         # through the batched passes and then appearing to hang for ten minutes on beam 20.
         costs = [_pass_cost(presets.decode_settings(c), presets.model_for(c)) for c in plans]
+        self._asr_total = len(plans)
 
         for i, job_cfg in enumerate(plans):
             self._check()
@@ -524,30 +570,47 @@ class Runner:
             if not model_available(presets.model_for(job_cfg)):
                 self.log(f"pass {i + 1} skipped — {presets.model_for(job_cfg)} is not installed "
                          f"(run tools/convert_german_models.sh for the full quality range)")
+                self._asr_total -= 1
                 continue
             with self._subspan(i, costs):
                 # Naming the pass in the phase label is what tells the user that a bar which has
                 # been moving for twenty minutes is working, not stuck.
-                self._phase = (f"Transcribing · pass {i + 1}/{len(plans)}"
-                               if len(plans) > 1 else "Transcribing")
+                label = (f" · pass {i + 1}/{len(plans)}" if len(plans) > 1 else "")
+                # A pass that asks for conditioned audio gets its own WAV. The filter is part of
+                # what that pass costs, so it is timed with it.
+                chain = str(presets.decode_settings(job_cfg).get("audio_filter") or "")
+                pass_wav = wav
+                if chain != base_chain:
+                    if info is None:
+                        self.log(f"pass {i + 1} skipped — cannot apply the {chain} filter without "
+                                 f"the source audio")
+                        self._asr_total -= 1
+                        continue
+                    self._phase = f"Filtering audio{label}"
+                    self._frac(0.0)
+                    t_filter = time.time()
+                    pass_wav = self._decode(info, cache, chain=chain)
+                    self._asr_seconds += time.time() - t_filter
+                self._phase = f"Transcribing{label}"
                 self._frac(0.0)
                 words, pass_info = self._transcribe_once(
-                    wav, duration, cache, cfg=job_cfg, tag=f"pass{i}")
+                    pass_wav, duration, cache, cfg=job_cfg, tag=f"pass{i}")
             self.log(f"pass {i + 1}/{len(plans)}: {len(words)} words")
             passes.append(words)
-            if not info:
-                info = pass_info
+            if not asr_info:
+                asr_info = pass_info
 
         merged = rover.combine(passes)
         agree = rover.agreement(passes)
         self.log(f"voted {len(passes)} passes -> {len(merged)} words "
                  f"({agree:.0%} of positions were unanimous)")
-        info = dict(info)
-        info.update({"passes": len(passes), "vote_agreement": round(agree, 4)})
-        return merged, info
+        asr_info = dict(asr_info)
+        asr_info.update({"passes": len(passes), "vote_agreement": round(agree, 4)})
+        return merged, asr_info
 
     def _transcribe_once(self, wav: Path, duration: float, cache: Path,
                          cfg: dict | None = None, tag: str = "") -> tuple[list[Word], dict]:
+        t_pass = time.time()
         cfg = self.cfg if cfg is None else cfg
         decode = presets.decode_settings(cfg)
         model_name = presets.model_for(cfg)
@@ -580,6 +643,7 @@ class Runner:
                 if data.get("settings") == settings:
                     words = [Word(**w) for w in data["words"]]
                     self.log(f"reusing transcription checkpoint ({len(words)} words)")
+                    self._reused.append(f"transcription {tag}" if tag else "transcription")
                     self._frac(1.0)
                     return words, data.get("info", {})
             except (json.JSONDecodeError, KeyError, TypeError):
@@ -654,6 +718,9 @@ class Runner:
             self._check()  # never persist a checkpoint from an interrupted stage
             ck.write_text(json.dumps({"settings": settings, "info": info,
                                       "words": [w.__dict__ for w in words]}))
+            # Only decodes that actually ran count toward the speed this job is reported at.
+            self._asr_seconds += time.time() - t_pass
+            self._asr_ran += 1
             return words, info
 
         raise last_err or StageError("transcription failed")
@@ -688,7 +755,34 @@ class Runner:
         out_dir = Path(self.spec.output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
         refine = bool(self.cfg.get("refine_speakers", True))
-        spans = stage_spans(with_fetch=bool(self.spec.url), with_refine=refine)
+        want_summary = bool(self.cfg.get("web_summary"))
+        spans = stage_spans(with_fetch=bool(self.spec.url), with_refine=refine,
+                            with_summary=want_summary)
+
+        # Probed before a single second of audio is decoded. The alternative -- discovering a
+        # missing API key in the stage AFTER the transcription -- means the user waits out the
+        # whole job to be told the thing they ticked the box for cannot run. The probe is free:
+        # it imports the SDK and constructs a client, it does not call the API.
+        summary_provider = None
+        if want_summary:
+            try:
+                summary_provider = summary_mod.pick(self.cfg)
+            except summary_mod.Unavailable as e:
+                raise StageError(f"the summary cannot be generated: {e}", kind="setup") from e
+            skipped = list(getattr(summary_provider, "skipped", []) or [])
+            for reason in skipped:
+                self.log(f"WARNING: summary provider not available, skipped: {reason}")
+            if self.cfg.get("summary_research") and not summary_provider.supports_research:
+                # Refused at second zero rather than quietly writing a brief nobody checked.
+                # The user asked for the facts to be checked against the web; a page that
+                # silently skipped that looks exactly like one that did it and found nothing.
+                raise StageError(
+                    f"web research was requested, but {summary_provider.label} cannot search "
+                    f"the web" + (f" ({'; '.join(skipped)})" if skipped else "")
+                    + ". Fix the Claude provider, or untick 'Verify with web research'.",
+                    kind="setup")
+            self.log(f"summary will be written by {summary_provider.label}"
+                     + (" with web research" if self.cfg.get("summary_research") else ""))
 
         if self.spec.url:
             self._stage("Downloading audio", *spans["fetch"])
@@ -727,7 +821,7 @@ class Runner:
 
         self._check()
         self._stage("Transcribing", *spans["transcribe"])
-        words, asr_info = self._transcribe(wav, info.duration, cache)
+        words, asr_info = self._transcribe(wav, info.duration, cache, info)
         self.log(f"transcription: {len(words)} words")
 
         # A collapsed decode still exits 0 and still writes a tidy transcript, so nothing else in
@@ -791,6 +885,9 @@ class Runner:
             "source": meta.webpage_url if meta else str(src),
             "title": meta.title if meta else src.stem.replace("_", " ").replace("-", " ").strip(),
             "uploader": meta.uploader if meta else "",
+            "published": meta.published if meta else "",
+            "description": meta.description if meta else "",
+            "chapters": list(meta.chapters) if meta else [],
             "local_file": str(src),
             "duration": info.duration,
             "language": asr_info.get("language"),
@@ -810,6 +907,19 @@ class Runner:
             "diar_pipeline": self.cfg.get("diar_pipeline"),
             "elapsed": elapsed,
             "realtime_factor": (info.duration / elapsed) if elapsed else 0.0,
+            # End-to-end wall clock answers "how long did I wait", not "how fast is this quality
+            # setting". Those differ by whatever was served from the checkpoint cache, and on a
+            # re-run they differ by a factor of three. The rungs in presets.py are calibrated on
+            # transcription alone, so that is what gets compared with them and folded back into
+            # the slider's estimate — and only when every pass this rung asks for actually ran.
+            "asr_seconds": round(self._asr_seconds, 2),
+            "asr_realtime_factor": ((info.duration / self._asr_seconds)
+                                    if self._asr_seconds else 0.0),
+            "asr_passes_ran": self._asr_ran,
+            "asr_passes_total": self._asr_total,
+            "reused_stages": list(self._reused),
+            # True when the timing describes this run's own work end to end.
+            "timing_is_cold": not self._reused,
             "finished_at": _dt.datetime.now().strftime("%Y-%m-%d %H:%M"),
         }
 
@@ -835,12 +945,58 @@ class Runner:
             written.append(subtitles.write(out_dir / f"{stem}.vtt",
                                            subtitles.render_vtt(turns)))
 
+        # Deliberately after the transcript is on disk. Everything above this point is the job
+        # the user actually asked for and is now safe; the summary is a second, network-dependent
+        # job on top of it, and its failure must cost the page and nothing else.
+        if summary_provider is not None:
+            self._check()
+            self._stage("Writing the summary", *spans["summarise"])
+            # Timed separately and reported separately. `elapsed` above means "how long the
+            # transcription took" and the transcript header states it; folding several minutes of
+            # API calls into that number would make the one figure the user can check disagree
+            # with the file it is printed in.
+            t_summary = time.time()
+            try:
+                data = summary_mod.summarize(
+                    turns, stats, result, summary_provider,
+                    research=bool(self.cfg.get("summary_research")),
+                    max_sections=int(self.cfg.get("summary_max_sections", 12)),
+                    max_claims=int(self.cfg.get("summary_max_claims", 16)),
+                    on_progress=self._frac, on_log=self.log,
+                    should_cancel=self.cancelled)
+            except summary_mod.Cancelled as e:
+                raise Cancelled("cancelled by user") from e
+            except Exception as e:  # noqa: BLE001 - the transcript is written; report and go on
+                self.log(f"ERROR: the summary could not be written: "
+                         f"{type(e).__name__}: {e}")
+                result["summary_error"] = f"{type(e).__name__}: {e}"
+                result["summary_seconds"] = round(time.time() - t_summary, 2)
+            else:
+                html_path = webpage.write(out_dir / f"{stem} - Summary.html",
+                                          webpage.render_html(data))
+                summary_md = webpage.write(out_dir / f"{stem} - Summary.md",
+                                           webpage.render_markdown(data))
+                written += [html_path, summary_md]
+                result["summary"] = data
+                if data["meta"].get("research_error"):
+                    result["summary_research_error"] = data["meta"]["research_error"]
+                result["summary_path"] = str(html_path)
+                result["summary_markdown_path"] = str(summary_md)
+                result["summary_seconds"] = round(time.time() - t_summary, 2)
+                self.log(f"summary: {len(data['sections'])} sections, "
+                         f"{len(data.get('sources', []))} source groups in "
+                         f"{human_duration(result['summary_seconds'])} -> {html_path.name}")
+
         if not self.cfg.get("keep_decoded_wav", False):
-            wav.unlink(missing_ok=True)
+            # Every decode, not just the base one: a voting rung with conditioned passes leaves a
+            # filtered WAV per filter, and at ~120 MB an hour those add up quietly in the job
+            # cache long before `cache_days` gets round to them.
+            for stale in cache.glob("decoded*.wav"):
+                stale.unlink(missing_ok=True)
 
         self._on_progress(1.0, "Done", "")
-        rtf = result["realtime_factor"]
-        self.log(f"finished in {human_duration(elapsed)} ({rtf:.1f}x realtime) -> {md_path}")
+        self.log(f"finished in {human_duration(elapsed)}"
+                 f"{presets.speed_note(result)} -> {md_path}")
 
         result.update({
             "turns": turns, "stats": stats, "enrichment": enrichment,

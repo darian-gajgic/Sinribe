@@ -3,6 +3,7 @@
     sinribe                          launch the GUI
     sinribe AUDIO [-o DIR]           transcribe a local file, headless
     sinribe URL   [-o DIR]           download a podcast/video first, then transcribe it
+    sinribe URL --summary            ... and write a summary + HTML presentation beside it
 """
 
 from __future__ import annotations
@@ -33,6 +34,15 @@ def _cli(args: argparse.Namespace) -> int:
         cfg["llm_enrich"] = True
     if args.no_enrich:
         cfg["llm_enrich"] = False
+    if args.summary:
+        cfg["web_summary"] = True
+    if args.no_summary:
+        cfg["web_summary"] = False
+    if args.research:
+        cfg["web_summary"] = True
+        cfg["summary_research"] = True
+    if args.summary_provider:
+        cfg["summary_provider"] = args.summary_provider
 
     from .fetch import is_url
 
@@ -73,6 +83,12 @@ def _cli(args: argparse.Namespace) -> int:
     print("\n")
     for p in result["written"]:
         print(f"   wrote {p}")
+    if result.get("summary_error"):
+        print(f"   WARNING: the summary was not written: {result['summary_error']}",
+              file=sys.stderr)
+    if result.get("summary_research_error"):
+        print(f"   WARNING: the web check did not run, the brief is transcript-only: "
+              f"{result['summary_research_error']}", file=sys.stderr)
     for name, s in sorted(result["stats"].items(), key=lambda kv: -kv[1]["seconds"]):
         print(f"   {name}: {s['seconds']:.1f}s ({s['share'] * 100:.0f}%)")
     return 0
@@ -114,6 +130,16 @@ def main() -> int:
     ap.add_argument("-s", "--speakers", type=int, help="exact number of speakers")
     ap.add_argument("--enrich", action="store_true", help="force LLM chapters + summary on")
     ap.add_argument("--no-enrich", action="store_true", help="force LLM enrichment off")
+    ap.add_argument("--summary", action="store_true",
+                    help="also write a summary and an HTML presentation of the recording")
+    ap.add_argument("--no-summary", action="store_true", help="force the summary off")
+    ap.add_argument("--research", action="store_true",
+                    help="implies --summary, and lets the model check claims against the web "
+                         "(Claude provider only)")
+    ap.add_argument("--summary-provider",
+                    choices=["auto", "claude-code", "claude", "ollama"],
+                    help="who writes the summary. Default 'auto': the `claude` CLI (no API key "
+                         "needed), then the API if a key is set, then the local Ollama")
     args = ap.parse_args()
 
     if args.audio:

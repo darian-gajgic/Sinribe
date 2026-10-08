@@ -14,6 +14,9 @@ from pathlib import Path
 CONFIG_DIR = Path.home() / ".config" / "sinribe"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 TOKEN_PATH = CONFIG_DIR / "hf_token"
+# Optional Claude API key for the summary feature. Same handling as the HF token: a file
+# in the config dir, chmod 600, never in the repo. The environment wins if both exist.
+ANTHROPIC_KEY_PATH = CONFIG_DIR / "anthropic_key"
 CACHE_DIR = Path.home() / ".cache" / "sinribe"
 JOBS_DIR = CACHE_DIR / "jobs"
 DOWNLOADS_DIR = CACHE_DIR / "downloads"
@@ -133,6 +136,9 @@ DEFAULTS: dict = {
     # is shared with Ollama and whatever else is resident. Rather than assert a number the user
     # can catch being wrong, the estimate corrects itself from their own runs.
     "observed_rtf": {},
+    # Which measurement `observed_rtf` holds. Stamped so the one-time wipe of the old end-to-end
+    # figures happens once and not on every load.
+    "observed_rtf_kind": "transcription",
     # Names and jargon to bias the recogniser toward, comma-separated. Whisper reliably mangles
     # proper nouns it has no reason to expect — "Fujitsu" came out as *fiuzi*, *jitze* and
     # *future service* in one interview — and this is the supported fix.
@@ -176,6 +182,35 @@ DEFAULTS: dict = {
     "llm_url": "http://127.0.0.1:11435",
     "llm_model": "gemma3:4b",
     "llm_timeout": 180,
+    # Summary + HTML presentation. A second, much larger job than `llm_enrich`: that one labels
+    # chapters, this one writes a briefing with headline figures, per-topic analysis and
+    # recommendations, and renders it as a standalone page. See sinribe/summary/.
+    "web_summary": False,
+    # Let the model check the recording's checkable claims against the web and collect real
+    # sources. Claude only; the local model has no network tools and says so rather than guessing.
+    "summary_research": False,
+    # auto | claude-code | claude | ollama. "auto" tries them in that order.
+    # "claude-code" shells out to the `claude` CLI in print mode and so needs no API key at all:
+    # it uses the login this machine already has, which is how the page that set the format for
+    # this feature was written. "claude" is the direct API, for someone who has a key and wants
+    # the decoder-enforced schema. "ollama" is the offline floor.
+    "summary_provider": "auto",
+    # Serves both cloud providers: the CLI accepts a model's full name as well as an alias.
+    "summary_model": "claude-opus-5-5",
+    # Only if the `claude` CLI is somewhere unusual; normally it is found on PATH.
+    "claude_binary": "claude",
+    # Thinking depth on the Claude path. "high" is the API default and what the section fills
+    # want; "low" is noticeably cheaper and noticeably blander.
+    "summary_effort": "high",
+    # Per-request ceiling. Section fills stream up to 16k output tokens each, and a long
+    # research pass with a dozen searches genuinely can take several minutes.
+    "summary_timeout": 900,
+    # How many topic sections to plan. The hand-built example that set the format for this
+    # feature had fourteen; twelve is a ten-minute read. A small local model is held to fewer.
+    "summary_max_sections": 12,
+    # How many of the recording's claims the web check looks up. Each costs roughly a search and
+    # sometimes a page read, so this is the main lever on how long the check takes.
+    "summary_max_claims": 16,
     # URL download (yt-dlp)
     "last_url": "",
     # Browser to lift cookies from for age-restricted or members-only media, e.g. "firefox"
@@ -210,6 +245,16 @@ def _migrate(user: dict, cfg: dict) -> None:
         # accuracy work. A genuine preference can still be set explicitly now that there is a
         # choice to make.
         cfg["asr_model"] = "auto"
+    if user.get("observed_rtf") and "observed_rtf_kind" not in user:
+        # Speeds recorded before 2026-08-07 are end-to-end wall clock, including whatever the run
+        # served from the checkpoint cache; the rungs they are compared against are transcription
+        # only. Averaging the two kinds under one key is how a resumed job that reused three
+        # cached passes taught the slider to promise 29.5x for a rung that runs at 10.7x — and
+        # once averaged in, that number cannot be told apart from a real one. Dropped rather than
+        # converted, because there is nothing in the old value to convert with: it will be
+        # relearned from the next job that actually decodes.
+        cfg["observed_rtf"] = {}
+    cfg["observed_rtf_kind"] = "transcription"
 
 
 def load_config() -> dict:
@@ -241,5 +286,22 @@ def hf_token() -> str | None:
     try:
         tok = TOKEN_PATH.read_text().strip()
         return tok or None
+    except OSError:
+        return None
+
+
+def anthropic_key() -> str | None:
+    """The Claude API key for the summary feature, or None to let the SDK resolve one itself.
+
+    Returning None is not the same as "no credentials": the SDK also reads ANTHROPIC_AUTH_TOKEN
+    and an `ant auth login` profile, so the provider hands it the chance to find those rather
+    than declaring failure here.
+    """
+    env = os.environ.get("ANTHROPIC_API_KEY")
+    if env:
+        return env.strip()
+    try:
+        key = ANTHROPIC_KEY_PATH.read_text().strip()
+        return key or None
     except OSError:
         return None

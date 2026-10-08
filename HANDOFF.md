@@ -19,7 +19,16 @@ Built 2026-07-26 in one session. Target box: Acer Predator Helios Neo 16, **RTX 
 | GUI end-to-end incl. speaker rename + re-export | ✅ |
 | YouTube link → download → transcript | ✅ (CC-BY talk; also a wordless film as the empty case) |
 | LLM chapters + summary via local Ollama | ✅ `gemma3:4b` on `:11435` |
-| Tests / lint | ✅ 119 pytest, ruff clean |
+| Summary + HTML presentation, Claude Code provider (default) | ✅ no API key; `claude -p` with the login already on this box |
+| Summary + HTML presentation, local Ollama provider | ✅ end-to-end on 25 min of the Kokotajlo interview |
+| Summary + HTML presentation, direct Claude API provider | ⚠️ request shape verified against a stub server; **never run against the real API, no key on this box** |
+| Web research pass | ✅ via Claude Code: 6 turns, real sources, no permission denials |
+| **Claude Code from the app menu** (desktop PATH has no `~/.npm-global/bin`) | ✅ fixed 2026-10-08, see "The CLI was invisible from the app menu" |
+| **Claim-by-claim web check** (outdated / incorrect / disputed / open / confirmed / unverified) | ✅ 2026-10-08, see "The web check" |
+| **New brief end to end**, 10m45s video, desktop PATH, Claude Code + web check | ✅ 2026-10-08: 5m 24s, **$3.25**, 3 sections, 14 claims (11 confirmed, 3 unverified), 148 tool sources, 3 min read |
+| New brief on a 2 h podcast | ❌ not yet run; the $17.97 figure above predates the rework and the word budget |
+| **Full summary of a 2 h podcast, Claude Code + research** | ✅ 2026-09-16: 12 sections, 72 blocks, 36 quotes, 7 tables, 17 verified links, 104 kB page. **18 minutes, $17.97 of usage** |
+| Tests / lint | ✅ 300+ pytest, ruff clean |
 | **German 34 min phone interview end-to-end** | ✅ 2026-07-26, 21.5× realtime |
 | Voice-print speaker refinement | ✅ cut question+answer blocks from 28 to 11 on that file |
 | **Word accuracy measured against a human reference** | ✅ 2026-08-06, see below |
@@ -216,18 +225,37 @@ implementation with these models. Three separate mechanisms were measured and al
    and 91.3 % over five, against 87.0 % for large-v3 alone. So even flawless selection is worth
    ~4 points, and the realistic version is worth less than nothing. Check this with
    `sinribe-eval --ceiling` before anyone proposes an ensemble again.
-4. **More voting passes.** Per-word voting is the one mechanism that *does* work — but only for
-   about three passes. The full ladder, measured 2026-08-07: 1 → 21.3 %, 2 → 20.8 %, 3 → 20.5 %,
-   4 → 20.3 %, 5 → 20.5 %, 6 → 20.6 %, 7 → 20.6 %, 8 → 20.7 %, 9 → 20.6 %. The 1× rung therefore
-   costs **31 minutes against about 6 for the ★ rung and ends up 0.2 pp worse**. Voting works by
-   letting passes that mishear *different* words outvote each other; passes 5-9 are the same two
-   models re-filtered and re-beamed, so they mishear the *same* words and the duplicates win the
-   majority. Adding a genuinely third model would be the only thing worth trying here.
+4. **More voting passes.** Per-word voting is the one mechanism that *does* work. Through three
+   passes it is measured and holds: 1 → 21.3 %, 2 → 20.8 %, 3 → 20.5 %.
+
+   **Past three passes the 2026-08-07 ladder is void — it measured a bug, not a setting.**
+   `pipeline._decode` read `audio_filter` from the job config instead of the pass's, and only the
+   extra passes ever set one, so the "denoise" and "clean" passes decoded the *untouched* WAV and
+   returned the pivot's own words back into the vote. Pass 5 was a copy of pass 1 and pass 6 was
+   another. That is why the curve looked like it turned back up (4 → 20.3 %, 5 → 20.5 %,
+   6 → 20.6 %, …): the pivot was casting two or three of the votes. "The extra passes duplicate a
+   model that has already voted" was a description of the defect, not a property of voting.
+   Fixed 2026-08-07 (each pass now gets the audio its own settings ask for, with a regression
+   test in `tests/test_pipeline.py::TestVotingPlan`); the 5×, 2× and 1× rungs are now
+   **uncalibrated** and their WER figures have been pulled from `presets.py` until a sweep
+   re-earns them. Note that 4 passes scored **20.3 %** — the best point on the whole ladder, and
+   the last one before the first duplicate — so "five real passes beat three" is an open question,
+   not a settled no.
+
+   Two guards were added with the fix: a pass that resolves to the same model *and* the same
+   decode settings as an earlier one is dropped with a log line (pinning a model in the dropdown
+   used to turn the "different model" pass into a silent re-run of the pivot), and a pass that
+   cannot get the audio it asks for is skipped rather than run on the wrong audio.
 
    **Measuring the whole ladder is nearly free and nobody should re-run nine decodes to do it.**
    One 1× run leaves `asr-pass0..8.json` in `~/.cache/sinribe/jobs/<key>/`, and
    `rover.combine(passes[:n])` on each prefix *is* rung n, because every rung's `extra_passes` is
    a prefix of the 1× rung's. All nine points score in seconds, on the CPU, from one run.
+   This is also how the bug above was invisible for a day: the prefix trick faithfully reproduced
+   what the shipped code did, and what the shipped code did was vote on two copies of pass 1.
+   **Before trusting a ladder measured this way, check that the passes actually differ** —
+   `[w["word"] for w in json.load(open(f))["words"]]` for each cached pass, and no two lists may
+   be equal.
 
 The floor is 8.7 % of words that no configuration gets right. Accept it, and spend the effort on
 the review workflow instead.
@@ -317,20 +345,225 @@ sinribe/
   fetch.py               yt-dlp download + probe    ← the ONLY networked module
   audio.py               ffmpeg probe/decode/clip
   enrich.py              optional Ollama chapters + summary
+  summary/               the briefing feature — a second job that reads the finished transcript
+    providers.py           Claude API (official SDK) and Ollama (raw urllib) behind one interface
+    build.py               the passes: notes -> plan -> research -> sections -> close
+    schema.py              JSON Schema for each pass + the clamping that makes answers renderable
   textfmt.py             EN/DE sentence splitting, timestamp formatting
   workers/asr_worker.py  faster-whisper subprocess   (.venv,      cu12)
   workers/diar_worker.py pyannote subprocess         (.venv-diar, cu13)
   workers/refine_worker.py per-sentence voice-print check (.venv-diar, embedding model only)
   render/                markdown, subtitles, sidecar
+    webpage.py             the summary page: inline CSS, no JS, no external requests
   ui/                    PySide6 window, QThread wrappers, speaker panel
 ```
 
 State on disk: config `~/.config/sinribe/config.json`; HF token `~/.config/sinribe/hf_token`
-(chmod 600, never in the repo); stage checkpoints `~/.cache/sinribe/jobs/<hash>/`; downloaded
+and the optional Claude key `~/.config/sinribe/anthropic_key` (both chmod 600, never in the repo); stage checkpoints `~/.cache/sinribe/jobs/<hash>/`; downloaded
 media `~/.cache/sinribe/downloads/` (kept indefinitely by default — first place to look when
 disk gets tight).
 
 ## Design notes worth knowing before changing anything
+
+### The summary needs no API key, and that is deliberate
+
+Three providers sit behind one interface (`summary/providers.py`), and `auto` tries them in this
+order: **Claude Code**, then the direct API, then local Ollama.
+
+Claude Code shells out to `claude -p --output-format json`. It authenticates with the claude.ai
+login already on the machine, which is the whole point: the hand-built page that set the format
+for this feature was written that way, so requiring a separate API key would have been a
+regression dressed as an integration. Verified working here; `claude auth status` is the probe
+(a local read, no billed request).
+
+What it gives up is decoder-enforced structured output. There is no `output_config.format` over
+the CLI, so the schema is appended to the *user* turn and the answer is parsed hopefully rather
+than guaranteed. In practice Opus returns clean JSON; `providers.salvage_json` and `_unfence`
+cover a fence or a truncation. The schema must stay in the user turn, not the system prompt: a
+resumed session keeps the system prompt it was created with, so every section after the first
+would otherwise be asked for the plan's shape.
+
+What it gains is a real conversation. One job is ONE resumed session (`--resume <session_id>`):
+the transcript goes out once and each later pass continues it, so the transcript is read from
+cache (measured: 2 input tokens against 11,677 cache reads on a resumed turn) and each section is
+written with the earlier sections in view. That beats the API path's identical-cached-prefix
+approach, where sections are independent and can restate each other.
+
+Hardening, because this runs a subprocess that can reach the network: `--restricted` (no Bash, no
+code execution, no WebFetch unless named, user settings ignored, file tools confined),
+`--strict-mcp-config` (none of the user's MCP servers or claude.ai connectors load; verified,
+`mcp_servers: []` in the init event), `--disable-slash-commands`, a scratch cwd under
+`~/.cache/sinribe/` so no project `CLAUDE.md` is inherited (verified: a print-mode run from such a
+directory reports no CLAUDE.md and no hooks), and the prompt on stdin rather than argv. The JSON
+passes get `--tools ""`, no tools at all. Only the research pass gets `--tools WebSearch WebFetch
+--allowedTools WebSearch WebFetch --permission-mode dontAsk --no-session-persistence`, in
+`stream-json` so its sources can be read from the tool results. Anything else it reaches for is
+denied and the denial is logged. `--effort` passes `summary_effort` through (default high).
+
+**The CLI updates itself, and npm replaces the symlink to do it.** This cost a real run: the
+plan pass finished, `claude` auto-updated 70 seconds into the job (symlink and package directory
+both restamped), and the research pass died with "the `claude` command is not on PATH" from a
+binary that was there a minute earlier and is there now. Three defences, all in
+`ClaudeCodeProvider`: `DISABLE_AUTOUPDATER=1` in the subprocess environment (our subprocess only,
+which also keeps one job on one version), the resolved path cached after the first lookup instead
+of re-running `which` fifteen times, and a few one-second retries before declaring it absent.
+Worth remembering if anything else here ever shells out to `claude`.
+
+**What it costs, measured, because the number is larger than it looks.** One full run over the
+139 kB Kokotajlo transcript with research on: **$17.97 and 18 minutes**. That is 15 Opus calls,
+and the resumed session is part of why: every section turn re-reads the whole conversation so far
+(transcript plus all earlier sections), which grows with each section. Coherence is bought with
+tokens. The levers, in the order worth trying: turn research off, lower `summary_max_sections`
+(12 is the ceiling and the cost is roughly linear in it), or set `summary_model` to
+`claude-sonnet-5`. My earlier note that resuming is "strictly better" than the API path's
+independent cached prefixes was wrong: it is better for coherence and worse for cost.
+
+### The CLI was invisible from the app menu, and "auto" hid it
+
+Found 2026-10-08, after a brief came out written by `gemma3:4b` while the user believed Claude
+was writing it. `npm install -g` with a user prefix puts `claude` in `~/.npm-global/bin`, and
+that directory is added to PATH in `~/.bashrc`, which only interactive shells read. The desktop
+session's PATH (checked on the running `gnome-shell`: `~/.local/bin:/usr/local/bin:/usr/bin:...`)
+does not have it, so a Sinribe started from the app menu ran `shutil.which("claude")`, found
+nothing, and either refused the explicit `claude-code` choice or let `auto` fall through to
+Ollama without saying so anywhere the user would look.
+
+Fixed in three places:
+
+- `ClaudeCodeProvider._locate` checks PATH first, then `CLAUDE_CODE_CANDIDATES` (npm-global,
+  `~/.local/bin`, the native installer's `~/.claude/local`, bun, volta, `/usr/local/bin`,
+  Homebrew) and nvm's per-version bins. `claude_binary` may also be an absolute path. The binary
+  here is a native ELF (`claude.exe` inside the npm package), so no `node` on PATH is needed.
+- `pick()` records what `auto` skipped and why on `provider.skipped`. The pipeline logs it, the
+  GUI's provider label says "(fallback, see tooltip)" and asks before starting, and the page
+  footer states it.
+- Asking for web research with a provider that cannot search is now a setup error at second
+  zero, not a log line and an unchecked page that looks exactly like a checked one.
+
+### The web check
+
+Rebuilt 2026-10-08 around the question the user actually has: "this video is two months old and
+about AI; which of its facts no longer hold?" The old pass searched once against the outline,
+wrote prose, and its links were trusted if they appeared in that prose.
+
+- **Claims come from the plan pass** (`PLAN_WITH_CLAIMS_SCHEMA`), which has just read the whole
+  transcript: up to `summary_max_claims` (16), time-sensitive first, each with timestamp and
+  section. The research call never sees the transcript.
+- **The publication date reaches every prompt.** `fetch.MediaMeta.published` comes from
+  yt-dlp's `release_date`/`upload_date`/`timestamp`; the source block says "Published on:
+  2026-08-03 (66 days before today)". Without it "outdated" had nothing to be relative to. The
+  uploader's description and chapter markers go to the plan and research prompts too, and links
+  in the description are allowed as sources.
+- **Research then verify, two calls.** `provider.research()` has WebSearch and WebFetch
+  (`--restricted` drops WebFetch unless `--tools` names it) and writes a report; a tool-free
+  `ask_json(VERDICTS_SCHEMA)` turns it into verdicts. Statuses: outdated, incorrect, disputed,
+  open (a prediction not yet due), confirmed, unverified.
+- **Sources are what the tools returned.** Claude Code research runs with `--output-format
+  stream-json --verbose`; `_stream_envelope` collects `tool_use_result` URLs (WebSearch hits,
+  WebFetch pages that came back 2xx/3xx). The API path walks `web_search_tool_result`,
+  `web_fetch_tool_result` and text citations. A verdict other than unverified with no such
+  source is downgraded to unverified; a development with none is dropped.
+- **Every link in the brief is held to that list** (`schema.restrict_links`), not only the
+  Sources section. Before this, `[label](url)` inside section prose went straight to the page.
+- **A failed web check no longer loses the page.** It used to be an unguarded call; a CLI
+  timeout there raised out of `summarize()`. Now it is caught, the brief is written from the
+  transcript, and the top of the page says the check did not run.
+- **Where it shows up:** freshness banner with verdict counts, a heads-up inside the 1-minute
+  version, a "What has changed" section, an amber callout at the top of each affected section,
+  and the section writer is told to state both what was said and what is true now.
+
+**The full summary has a word budget** (`build.section_budget`): 15 % of the spoken words,
+clamped to 400-3,000 in total and 150-350 per section. Measured without it on a 10m45s video
+(2,400 spoken words): the sections came to about 2,900 words, longer than the transcript, and
+the page advertised "13 min full summary" next to "10m 45s listening". The one-minute version was
+tightened at the same time (gist 50-80 words, 3-5 one-sentence takeaways, about 200 words in all,
+the reading speed of a non-native reader of dense English), and the "instead of N listening" pill
+only appears when it is true.
+
+The brief itself was restructured for learning at the same time (1-minute version, key terms
+before the detail, prose-first sections with key points, worth-watching moments, a self-test).
+The six forecasting lenses copied from the Kokotajlo page were replaced by optional boxes that fit
+any recording: example, evidence, forecast, caveat, howto, definition.
+
+### The summary is a second job, and it fails differently from the first one
+
+`enrich.py` swallows every error and returns `{}` — right for a stage nobody asked for. The
+summary is the opposite: the user ticked a box for it, so it is loud.
+
+- The provider is **probed before the audio is decoded**. A missing key raises `StageError(kind=
+  "setup")` at second zero instead of after two hours. The GUI probes again at Start so the usual
+  case is a dialog, not a failed job.
+- The probe checks that a credential actually **resolved**, not that a client constructed.
+  `anthropic.Anthropic()` with nothing configured returns a working object and only raises at
+  request time, so a construction-only probe reports "ready" on a machine with no key at all.
+- After the transcript is on disk, the summary can no longer fail the job. It logs, sets
+  `result["summary_error"]`, and the window says so in the done card.
+- `elapsed` stays the transcription's time. The summary's is `summary_seconds`, reported
+  separately, so the number printed in the transcript header still matches the file it is in.
+
+### Seven failures real runs hit, and what fixed them
+
+Every one was found by running it, not by reading it. Most are the local model's; the
+mid-word clamp and the auto-updater are not. The lesson underneath the model ones:
+grammar-constrained sampling guarantees the JSON is *valid so far*. It does not guarantee the
+model reaches the closing brace, and a decoder that stops early produces output that is correct
+and useless in equal measure.
+
+1. **Section 2 truncated at char 5345.** `num_ctx` covers prompt *and* generation; 8192 minus a
+   6 kB prompt left no room for a 4096-token answer. The window is now sized per call from the
+   prompt actually being sent (`OllamaProvider._window`).
+2. **The closing pass truncated at char 43.** The notes digest is unbounded in the number of
+   chunks: 25 minutes of audio produced ~48 kB of notes, and four hours would produce ten times
+   that. Fixed by capping each note (`_render_notes`) and folding batches of notes back through
+   the model until they fit (`_digest`). Folding rather than truncating on purpose — truncation
+   drops the *end* of the recording and yields a summary of the first half labelled as the whole.
+3. **A section failing killed the page.** One `SummaryError` propagated out of the loop. Now a
+   failed section is logged and skipped; only an empty page is an error.
+4. **A truncated answer threw away the 90 % that arrived.** `providers.salvage_json` closes the
+   open brackets and parses the complete prefix, dropping any half-written value. The schema layer
+   already treats missing fields as empty, so a cut-off section arrives slightly shorter instead
+   of not at all. Used on both providers: Claude can hit `max_tokens` too.
+5. **Twelve sections asked of a 100-second clip.** The plan came back with no sections and the
+   whole summary failed. Two fixes: the section count now scales with duration (`_section_count`,
+   about one per ten minutes, floor 3, ceiling from config), and the plan — the one pass nothing
+   can be dropped from — is retried once with a smaller ask (`_plan`).
+
+6. **A clamped field ending mid-word.** A real page's "For you" paragraph ended "...would not
+   press a button that s", because `_s` hard-sliced at its character limit. `schema._clip` now
+   cuts at the last sentence boundary, or at a word boundary with an ellipsis, and the paragraph
+   limits were raised where they were trimming content rather than padding.
+7. **A field that swallowed the rest of the object.** gemma3:4b wrote the *typographic* quote
+   inside a JSON string, so the string never closed where it meant to and one heading arrived
+   carrying `", "subheading": "...", "focus": "..."`. The answer parses, so nothing upstream
+   notices. `schema._JSON_LEAK` cuts a string at the first fragment that looks like one of these
+   schemas' own keys reopening — restricted to those key names precisely so it cannot cut a real
+   sentence — and the swallowed keys fall back to their defaults.
+
+Worth keeping in mind when changing any of this: a bigger `max_tokens` is not the fix for a
+truncated answer on the local path, because `num_ctx` has to grow with it. Ask for less, or give
+the window more room, and prefer the first.
+
+**`gemma3:4b` is the floor, not the recommendation.** It is what was already on the box, and the
+five failures above are mostly its failures. It writes a complete page for 25 minutes of audio,
+and falls over on a two-minute clip. Anything using the offline path seriously should pull a
+12-14B model (`ollama pull qwen3:14b`) — there is VRAM for it — and `llm_model` in the config
+already points wherever you want.
+
+### En and em dashes are removed in code, not asked for in the prompt
+
+`schema.dedash` runs over every generated string. The prompt asks the model to avoid them and a
+small model obliges about half the time, which is not a guarantee. Between digits a dash is a
+range and becomes a hyphen; spaced, it is doing a comma's job and becomes one; anything left
+becomes a hyphen. The character class is U+2012..U+2015 plus U+2212, matching the
+`grep -P '[\x{2012}-\x{2015}\x{2212}]|&[mn]dash;'` check, and a test asserts the rendered page
+contains none.
+
+### Citations are matched, never trusted
+
+Every URL on the page is checked against URLs that appeared in a real search result or in the
+transcript (`schema.close`, `schema.find_urls`). A link the model produced from memory is dropped.
+This is the one place where a plausible wrong answer is actively harmful: an invented citation is
+indistinguishable from a real one.
 
 - **Attribution is sentence-level, decided from word timings.** Whisper *segments* straddle speaker
   changes, so they cannot be the unit. Individual *words* are too small in the other direction: one
