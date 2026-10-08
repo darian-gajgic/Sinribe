@@ -25,10 +25,14 @@ def build(
 ) -> dict:
     return {
         "schema_version": SCHEMA_VERSION,
+        # `speed_target`, `decode` and `speech_coverage` are here so a transcript records how it
+        # was produced and how completely — which is what makes two runs of the same recording
+        # comparable after the fact, and what `sinribe-eval` reads when scoring a sweep.
         "meta": {k: result.get(k) for k in (
             "source", "duration", "language", "language_probability", "model", "device",
             "compute_type", "batch_size", "diar_pipeline", "elapsed", "finished_at",
-            "realtime_factor", "title")},
+            "realtime_factor", "title", "speed_target", "decode", "speech_coverage",
+            "passes", "vote_agreement", "uploader", "published")},
         "stats": {k: {kk: vv for kk, vv in v.items() if kk != "longest"} | {
             "longest": list(v["longest"])} for k, v in stats.items()},
         "speaker_names": {t.speaker: t.speaker for t in turns},

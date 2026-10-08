@@ -5,8 +5,9 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
-# Never commit the HuggingFace token (it lives in ~/.config/sinribe/hf_token anyway)
+# Never commit a credential (both live in ~/.config/sinribe/ anyway)
 hf_token
+anthropic_key
 *.token
 
 # Transcript output. These are personal artefacts and are frequently verbatim transcripts of
@@ -21,3 +22,6 @@ hf_token
 /*.md
 !/README.md
 !/HANDOFF.md
+# Summary pages, same reasoning as the transcripts: they quote third-party material at length.
+/*.html
+* - Summary.html

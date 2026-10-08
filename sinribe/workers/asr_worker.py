@@ -17,6 +17,7 @@ import json
 import os
 import sys
 import time
+from pathlib import Path
 
 _OOM_MARKERS = ("out of memory", "cuda_error_out_of_memory", "cublas_status_alloc_failed",
                 "failed to allocate", "cudnn_status_alloc_failed")
@@ -50,9 +51,18 @@ def main() -> int:
     compute_type = job.get("compute_type", "float16")
     batch_size = int(job.get("batch_size", 8))
     beam_size = int(job.get("beam_size", 5))
+    patience = float(job.get("patience", 1.0))
     language = job.get("language") or None
     vad_filter = bool(job.get("vad_filter", True))
     sequential = bool(job.get("sequential", False))
+    hotwords = (job.get("hotwords") or "").strip() or None
+    condition = bool(job.get("condition_on_previous_text", False))
+    repetition_penalty = float(job.get("repetition_penalty", 1.0))
+    no_repeat_ngram_size = int(job.get("no_repeat_ngram_size", 0))
+    prompt_reset_on_temperature = float(job.get("prompt_reset_on_temperature", 0.5))
+    temperature_fallback = bool(job.get("temperature_fallback", True))
+    vad_min_silence_ms = int(job.get("vad_min_silence_ms", 500))
+    vad_speech_pad_ms = int(job.get("vad_speech_pad_ms", 400))
 
     # HF cache is already populated for large-v3 / medium.en / small; never hit the network.
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
@@ -67,7 +77,8 @@ def main() -> int:
         emit(ev="error", kind="oom" if is_oom(e) else "load", msg=f"{type(e).__name__}: {e}")
         return 1
     log(f"model ready in {time.time() - t0:.1f}s")
-    emit(ev="ready", device=device, compute_type=compute_type, model=model_name,
+    emit(ev="ready", device=device, compute_type=compute_type,
+         model=Path(model_name).name if os.path.isdir(model_name) else model_name,
          batch_size=batch_size)
 
     try:
@@ -77,17 +88,41 @@ def main() -> int:
             word_timestamps=True,
             vad_filter=vad_filter,
         )
+        # Proper nouns are where whisper fails most visibly and most fixably: with nothing to
+        # expect, "Fujitsu" decodes as *fiuzi* / *jitze* / *future service*. Unlike an
+        # initial_prompt — which was tried, and made word accuracy worse by nudging whisper's
+        # whole speaking style — hotwords bias only the vocabulary.
+        if hotwords:
+            kwargs["hotwords"] = hotwords
+        if not temperature_fallback:
+            # A single temperature means every window keeps its beam search. Whisper's own
+            # repeat guard is what the fallback ladder normally provides, so this is only safe
+            # with the compression-ratio check still armed (it is, by default).
+            kwargs["temperature"] = [0.0]
         if sequential:
             # Tighter VAD than the default (2000 ms silence / 400 ms pad): long silences were
             # swallowing the quiet run-in of the next utterance. Measured on a 34-minute German
             # interview, this plus sequential decoding raises the share of audio covered by word
             # spans from 0.75 to 0.79.
             if vad_filter:
-                kwargs["vad_parameters"] = dict(min_silence_duration_ms=500, speech_pad_ms=400)
-            # Conditioning on the previous window makes long recordings drift: on the same file
-            # it produced non-reproducible output and occasional degenerate repeats
-            # ("...mehr... ...mehr..."). Off, two runs are byte-identical.
-            kwargs["condition_on_previous_text"] = False
+                kwargs["vad_parameters"] = dict(min_silence_duration_ms=vad_min_silence_ms,
+                                                speech_pad_ms=vad_speech_pad_ms)
+            if beam_size > 1 and patience != 1.0:
+                kwargs["patience"] = patience
+            # Feeding the previous window back as context is what lets whisper resolve the
+            # function words that dominate its errors on fast speech ("das"/"es", "dann"/"da").
+            # Left unguarded it also lets a long recording drift into degenerate repeats
+            # ("...mehr... ...mehr..."), which is why it used to be off entirely. The repetition
+            # guards below are the supported fix for that failure, so context can stay on:
+            # prompt_reset_on_temperature drops the context whenever decoding falls back to a
+            # higher temperature, i.e. exactly when the model has started to lose the thread.
+            kwargs["condition_on_previous_text"] = condition
+            if condition:
+                kwargs["prompt_reset_on_temperature"] = prompt_reset_on_temperature
+            if repetition_penalty != 1.0:
+                kwargs["repetition_penalty"] = repetition_penalty
+            if no_repeat_ngram_size:
+                kwargs["no_repeat_ngram_size"] = no_repeat_ngram_size
 
         if batch_size > 1 and not sequential:
             segments, info = BatchedInferencePipeline(model=model).transcribe(

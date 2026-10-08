@@ -12,7 +12,8 @@ Nothing is re-encoded here. The best available audio stream is kept in its nativ
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+import datetime as _dt
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
@@ -40,6 +41,15 @@ class MediaMeta:
     extractor: str
     is_live: bool
     webpage_url: str
+    # When the site says the media was published, as YYYY-MM-DD, or "" if it did not say. The
+    # web check needs this: a claim can only be "outdated" relative to when it was made, and a
+    # two-month-old AI video is a different object from a two-year-old one.
+    published: str = ""
+    # The uploader's own description and chapter markers. The description is where podcasts
+    # list the papers, tools and people they mention, so its links are real provenance; the
+    # chapters are the uploader's outline of the episode and a strong hint for the summary's.
+    description: str = ""
+    chapters: list[dict] = field(default_factory=list)
 
     @property
     def display(self) -> str:
@@ -86,6 +96,31 @@ def _ydl_opts(cookies_from_browser: str | None = None) -> dict:
     return opts
 
 
+def _published(info: dict) -> str:
+    """The publication date as YYYY-MM-DD, from whichever field this site filled in."""
+    for key in ("release_date", "upload_date"):
+        raw = str(info.get(key) or "")
+        if re.fullmatch(r"\d{8}", raw):
+            return f"{raw[:4]}-{raw[4:6]}-{raw[6:]}"
+    for key in ("release_timestamp", "timestamp"):
+        stamp = info.get(key)
+        if isinstance(stamp, (int, float)) and stamp > 0:
+            return _dt.datetime.fromtimestamp(stamp, _dt.timezone.utc).date().isoformat()
+    return ""
+
+
+def _chapters(info: dict) -> list[dict]:
+    out = []
+    for chapter in info.get("chapters") or []:
+        if not isinstance(chapter, dict):
+            continue
+        title = str(chapter.get("title") or "").strip()
+        start = chapter.get("start_time")
+        if title and isinstance(start, (int, float)):
+            out.append({"title": title[:200], "start": float(start)})
+    return out[:80]
+
+
 def _meta_from_info(info: dict, url: str) -> MediaMeta:
     return MediaMeta(
         url=url,
@@ -96,6 +131,9 @@ def _meta_from_info(info: dict, url: str) -> MediaMeta:
         extractor=str(info.get("extractor_key") or info.get("extractor") or "?"),
         is_live=bool(info.get("is_live")),
         webpage_url=str(info.get("webpage_url") or url),
+        published=_published(info),
+        description=str(info.get("description") or "")[:5000],
+        chapters=_chapters(info),
     )
 
 

@@ -26,6 +26,12 @@ nvidia-cudnn-cu12==9.24.0.43
 # GUI (abi3 wheel; needs glibc >= 2.34, this box has 2.43)
 PySide6==6.11.1
 
+# Summary + HTML presentation, when it is written by the Claude API rather than the local
+# Ollama. Optional at runtime: sinribe/summary/providers.py degrades to the local provider with
+# an actionable message if the import fails, so an existing venv keeps working without it.
+# Unpinned for the same reason yt-dlp is: it tracks a moving API.
+anthropic
+
 # Download audio from a pasted link (YouTube podcasts etc). Deliberately UNPINNED: sites change
 # their delivery constantly and a pinned yt-dlp silently rots. If a link stops working, the first
 # thing to try is `uv pip install --python .venv/bin/python -U yt-dlp`.
