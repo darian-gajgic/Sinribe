@@ -103,7 +103,9 @@ and asking a model not to use them only works about half the time.
 | Local Ollama | `gemma3:4b` already running on `:11435` | Offline and free. Reads the recording in chunks and writes fewer, thinner sections |
 
 `auto` tries them in that order, so on a machine where you already use Claude Code the checkbox
-just works. Whichever ran is named in the page's footer along with what it cost, so you can always
+just works. A stock Ollama install listens on port 11434, not 11435; if yours does, set
+`"llm_url": "http://127.0.0.1:11434"` in `~/.config/sinribe/config.json`.
+Whichever ran is named in the page's footer along with what it cost, so you can always
 tell what you are reading.
 
 **Claude Code needs no key because it is the same thing you would do by hand.** It runs
@@ -259,6 +261,19 @@ Two traps worth knowing if you touch the launcher:
 
 ## Install
 
+Sinribe is built and tested on Ubuntu with an NVIDIA GPU. Other Linux distributions should work.
+Without an NVIDIA GPU it runs on the CPU, which works but is many times slower. Plan for about
+13 GB of disk: two virtualenvs (8.4 GB) and the speech models (4.5 GB).
+
+You need `git`, `ffmpeg` and [uv](https://docs.astral.sh/uv/), which fetches Python 3.12 by itself:
+
+```bash
+sudo apt install git ffmpeg
+curl -LsSf https://astral.sh/uv/install.sh | sh
+git clone https://github.com/darian-gajgic/Sinribe.git
+cd Sinribe
+```
+
 pyannote's models are gated, so there is a one-time online step:
 
 1. Create a HuggingFace account: <https://huggingface.co/join>
@@ -267,8 +282,20 @@ pyannote's models are gated, so there is a one-time online step:
 4. Make a **Read** token at <https://huggingface.co/settings/tokens>
 5. `./install.sh --hf-token hf_xxxxxxxx`
 
+The installer builds both virtualenvs, downloads the diarization models and `large-v3`, converts
+the German turbo model that the default quality setting votes with, and adds a `sinribe` command
+and a desktop icon. Start it with `sinribe`, or `~/.local/bin/sinribe` if that folder is not on
+your `PATH` yet.
+
 After that everything runs with `HF_HUB_OFFLINE=1`. The token is stored in
 `~/.config/sinribe/hf_token` (chmod 600) and is never written into this repo.
+
+The summary is optional. It uses [Claude Code](https://claude.com/claude-code) if it is installed
+and logged in, an Anthropic API key, or a local model through Ollama; see
+[Who writes it](#who-writes-it).
+
+If the window does not open and the error mentions `xcb`, install the one Qt library Ubuntu
+leaves out: `sudo apt install libxcb-cursor0`.
 
 `speaker-diarization-3.1` is offered as an alternative in the Options panel but needs its own
 licence acceptance; `community-1` is newer and more accurate, so there is rarely a reason to.
