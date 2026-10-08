@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from sinribe import presets
 from sinribe.merge import DiarTurn
 from sinribe.pipeline import (
     ASR_TIERS, JobSpec, Runner, StageError, _asr_env, _diar_env, _job_key, pick_asr_tier,
@@ -414,6 +415,40 @@ class TestVotingProgress:
         assert "30s left" in seen[-1][2]
 
 
+class TestSummaryStageSpans:
+    """The summary is an optional stage, so the bar has to span 0..1 with and without it."""
+
+    def _spans(self, **kw):
+        from sinribe.pipeline import stage_spans
+        return stage_spans(**kw)
+
+    def test_the_bar_always_spans_exactly_one(self):
+        for fetch in (True, False):
+            for refine in (True, False):
+                for summary in (True, False):
+                    spans = self._spans(with_fetch=fetch, with_refine=refine,
+                                        with_summary=summary)
+                    base, width = spans[max(spans, key=lambda k: spans[k][0])]
+                    assert base + width == pytest.approx(1.0), (fetch, refine, summary)
+
+    def test_the_summary_is_absent_unless_asked_for(self):
+        assert "summarise" not in self._spans(with_fetch=False, with_summary=False)
+        assert "summarise" in self._spans(with_fetch=False, with_summary=True)
+
+    def test_the_summary_comes_last(self):
+        spans = self._spans(with_fetch=True, with_refine=True, with_summary=True)
+        assert max(spans, key=lambda k: spans[k][0]) == "summarise"
+        # Everything before it is squeezed but keeps its order.
+        starts = [spans[k][0] for k in ("fetch", "decode", "diarize", "transcribe",
+                                        "refine", "finish", "summarise")]
+        assert starts == sorted(starts)
+
+    def test_transcription_still_dominates(self):
+        """A summary that ate half the bar would make a 4 h job look stalled at 50 %."""
+        spans = self._spans(with_fetch=False, with_refine=True, with_summary=True)
+        assert spans["transcribe"][1] > spans["summarise"][1]
+
+
 class TestPassCost:
     def test_cheap_decodes_are_ranked_below_the_baseline(self):
         from sinribe.pipeline import _pass_cost
@@ -428,3 +463,165 @@ class TestPassCost:
         # A zero would make one pass invisible on the bar and, with every pass at zero, divide
         # the stage by nothing at all.
         assert _pass_cost({"asr_mode": "fast", "beam_size": 0}, "large-v3-turbo-german") > 0
+
+
+class TestVotingPlan:
+    """What the passes of a voting rung actually run.
+
+    Two passes that resolve to the same model and the same decode settings do not check each
+    other — they double one opinion's weight and outvote the passes that disagree with it.
+    """
+
+    def _runner(self, cfg, monkeypatch):
+        """A Runner whose decodes are recorded instead of executed."""
+        from sinribe import pipeline as pl
+        monkeypatch.setattr(pl, "model_available", lambda m: True)
+        r = Runner(JobSpec(input_path=Path("in.wav"), output_dir=Path("out"), cfg=cfg))
+        seen: list[tuple[str, str, Path]] = []
+
+        def fake_once(wav, duration, cache, cfg=None, tag=""):
+            d = presets.decode_settings(cfg)
+            seen.append((presets.model_for(cfg), f"{d['asr_mode']}/{d['audio_filter']}", wav))
+            return [], {}
+
+        monkeypatch.setattr(r, "_transcribe_once", fake_once)
+        monkeypatch.setattr(r, "_decode",
+                            lambda info, cache, chain=None: Path(f"decoded-{chain or 'raw'}.wav"))
+        return r, seen
+
+    def test_the_recommended_rung_runs_its_three_distinct_passes(self, monkeypatch):
+        cfg = {"speed_target": 10, "asr_model": "auto"}
+        r, seen = self._runner(cfg, monkeypatch)
+        r._transcribe(Path("base.wav"), 60.0, Path("cache"))
+        assert [(m, d) for m, d, _ in seen] == [
+            ("large-v3", "accurate/"), ("large-v3", "fast/"), ("large-v3-turbo-german",
+                                                               "accurate/")]
+
+    def test_a_pinned_model_does_not_leave_a_duplicate_pass_voting_twice(self, monkeypatch):
+        # Pinning large-v3 in the dropdown collapses the "different model" pass onto the pivot.
+        # Running it anyway would give the pivot two of three votes and cost GPU minutes to do it.
+        cfg = {"speed_target": 10, "asr_model": "large-v3"}
+        r, seen = self._runner(cfg, monkeypatch)
+        r._transcribe(Path("base.wav"), 60.0, Path("cache"))
+        assert [(m, d) for m, d, _ in seen] == [("large-v3", "accurate/"), ("large-v3", "fast/")]
+
+    def test_a_pass_that_asks_for_filtered_audio_is_given_filtered_audio(self, monkeypatch):
+        # The 5x rung's denoise pass used to decode the untouched WAV, because the filter was read
+        # off the job config where only the passes ever set one. Its output came back
+        # byte-identical to the pivot's: a duplicate ballot wearing a different name.
+        cfg = {"speed_target": 5, "asr_model": "auto"}
+        r, seen = self._runner(cfg, monkeypatch)
+        r._transcribe(Path("base.wav"), 60.0, Path("cache"), object())
+        by_filter = {d.split("/")[1]: wav for _, d, wav in seen}
+        assert by_filter[""] == Path("base.wav")
+        assert by_filter["denoise"] == Path("decoded-denoise.wav")
+
+    def test_an_unfilterable_pass_is_dropped_rather_than_run_on_the_wrong_audio(self,
+                                                                                monkeypatch):
+        # No source audio to filter (an old caller that passes no MediaInfo): skip the pass. A
+        # pass that cannot honour its own settings must not vote as if it had.
+        cfg = {"speed_target": 5, "asr_model": "auto"}
+        r, seen = self._runner(cfg, monkeypatch)
+        r._transcribe(Path("base.wav"), 60.0, Path("cache"))
+        assert all(d.split("/")[1] == "" for _, d, _ in seen)
+
+
+class TestSpeedHonesty:
+    """A run's reported speed must describe work it did, not work it read off disk.
+
+    The bug this pins down: a re-run at the 10.7x rung reused all three cached passes, re-ran
+    only diarization, and reported "29.5x realtime" — then fed that into `observed_rtf`, so the
+    slider would have gone on promising 29.5x for a rung that runs at ten.
+    """
+
+    def test_a_run_that_decoded_every_pass_is_comparable_with_its_rung(self):
+        result = {"asr_passes_ran": 3, "asr_passes_total": 3, "asr_realtime_factor": 10.4,
+                  "reused_stages": ["diarization"]}
+        assert presets.trustworthy_rtf(result) == 10.4
+        assert "10.4× realtime transcribing" in presets.speed_note(result)
+
+    def test_a_fully_cached_transcription_reports_no_speed(self):
+        result = {"asr_passes_ran": 0, "asr_passes_total": 3, "asr_realtime_factor": 0.0,
+                  "reused_stages": ["transcription pass0"], "realtime_factor": 29.5}
+        assert presets.trustworthy_rtf(result) == 0.0
+        assert "reused from cache" in presets.speed_note(result)
+        assert "29.5" not in presets.speed_note(result)
+
+    def test_a_partly_cached_run_says_how_much_it_actually_decoded(self):
+        result = {"asr_passes_ran": 1, "asr_passes_total": 3, "asr_realtime_factor": 20.1,
+                  "reused_stages": ["transcription pass1", "transcription pass2"]}
+        assert presets.trustworthy_rtf(result) == 0.0
+        assert "1 of 3 passes decoded" in presets.speed_note(result)
+
+    def test_a_cached_run_cannot_teach_the_slider_a_speed(self):
+        cfg = {"observed_rtf": {}}
+        cached = {"asr_passes_ran": 0, "asr_passes_total": 3, "asr_realtime_factor": 0.0,
+                  "reused_stages": ["transcription pass0"]}
+        presets.record_rtf(cfg, 10, presets.trustworthy_rtf(cached))
+        assert cfg["observed_rtf"] == {}
+        cold = {"asr_passes_ran": 3, "asr_passes_total": 3, "asr_realtime_factor": 10.4,
+                "reused_stages": []}
+        presets.record_rtf(cfg, 10, presets.trustworthy_rtf(cold))
+        assert cfg["observed_rtf"] == {"10": 10.4}
+
+    def test_an_old_result_without_the_counters_makes_no_claim(self):
+        assert presets.trustworthy_rtf({"realtime_factor": 29.5}) == 0.0
+        assert presets.speed_note({"realtime_factor": 29.5}) == ""
+
+
+class TestObservedRtfMigration:
+    """Speeds recorded before the fix are a different measurement and must not be averaged in."""
+
+    def _load(self, tmp_path, monkeypatch, user):
+        from sinribe import config as cfgmod
+        path = tmp_path / "config.json"
+        path.write_text(json.dumps(user))
+        monkeypatch.setattr(cfgmod, "CONFIG_PATH", path)
+        return cfgmod.load_config()
+
+    def test_end_to_end_figures_are_dropped_once(self, tmp_path, monkeypatch):
+        cfg = self._load(tmp_path, monkeypatch,
+                         {"speed_target": 10, "observed_rtf": {"1": 2.12, "10": 29.5}})
+        assert cfg["observed_rtf"] == {}
+        assert cfg["observed_rtf_kind"] == "transcription"
+
+    def test_figures_recorded_since_the_fix_survive(self, tmp_path, monkeypatch):
+        cfg = self._load(tmp_path, monkeypatch,
+                         {"speed_target": 10, "observed_rtf": {"10": 10.4},
+                          "observed_rtf_kind": "transcription"})
+        assert cfg["observed_rtf"] == {"10": 10.4}
+
+    def test_a_config_that_never_recorded_one_is_untouched(self, tmp_path, monkeypatch):
+        cfg = self._load(tmp_path, monkeypatch, {"speed_target": 10})
+        assert cfg["observed_rtf"] == {}
+
+
+class TestSummaryGuard:
+    """Research that cannot happen is refused at second zero, not discovered in the output."""
+
+    def test_research_without_a_searching_provider_is_a_setup_error(self, monkeypatch, tmp_path):
+        from sinribe.summary import providers
+        monkeypatch.setattr(providers.OllamaProvider, "probe", lambda self: None)
+        cfg = {"web_summary": True, "summary_research": True, "summary_provider": "ollama"}
+        runner = Runner(JobSpec(input_path=Path("missing.wav"), output_dir=tmp_path, cfg=cfg))
+        with pytest.raises(StageError) as excinfo:
+            runner.run()
+        assert excinfo.value.kind == "setup"
+        assert "cannot search the web" in str(excinfo.value)
+
+    def test_an_auto_fallback_is_logged(self, monkeypatch, tmp_path):
+        from sinribe.summary import providers
+
+        def missing(self):
+            raise providers.Unavailable("the `claude` command was not found")
+
+        monkeypatch.setattr(providers.ClaudeCodeProvider, "probe", missing)
+        monkeypatch.setattr(providers.ClaudeProvider, "probe", missing)
+        monkeypatch.setattr(providers.OllamaProvider, "probe", lambda self: None)
+        logs: list[str] = []
+        cfg = {"web_summary": True, "summary_research": False, "summary_provider": "auto"}
+        runner = Runner(JobSpec(input_path=None, output_dir=tmp_path, cfg=cfg),
+                        on_log=logs.append)
+        with pytest.raises(StageError):                  # no input: stops right after the probe
+            runner.run()
+        assert any("skipped: claude-code" in m for m in logs)

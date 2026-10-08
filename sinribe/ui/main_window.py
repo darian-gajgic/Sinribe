@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from .. import audio, presets
+from .. import audio, presets, summary as summary_mod
 from ..config import (
     ASR_MODELS, DIAR_PIPELINES, DOWNLOADS_DIR, LANGUAGES, diar_available, model_available,
     save_config, supports_hotwords,
@@ -351,6 +351,56 @@ class MainWindow(QWidget):
             checks.addWidget(w)
         checks.addStretch(1)
         g.addLayout(checks, 6, 0, 1, 4)
+
+        # The summary gets its own row because it is a different kind of output from the ones
+        # above: not another rendering of the transcript, but a second job that reads it.
+        summary_row = QHBoxLayout()
+        summary_row.setSpacing(22)
+        self.cb_summary = QCheckBox("Summary + HTML presentation")
+        self.cb_summary.setChecked(bool(self.cfg.get("web_summary", False)))
+        self.cb_summary.setToolTip(
+            "Write a briefing on the recording and render it as a standalone web page:\n"
+            "headline figures, a 60-second version, one section per topic with forecast,\n"
+            "reasoning, risks, impact and a recommendation, question checklists and sources.\n"
+            "Saved next to the transcript as '<name> - Summary.html' and '.md'.\n\n"
+            "Adds a few minutes at the end. Written by Claude Code using the login already\n"
+            "on this machine, so it needs no API key.")
+        self.cb_research = QCheckBox("Verify with web research")
+        self.cb_research.setChecked(bool(self.cfg.get("summary_research", False)))
+        self.cb_research.setToolTip(
+            "Let the model search the web while writing: check the recording's checkable\n"
+            "claims, add what has happened since, and collect real source links.\n"
+            "Slower and costs more. Needs the Claude provider; the local model has no\n"
+            "network access and will say so rather than inventing citations.")
+        self.cb_summary.toggled.connect(self._sync_summary)
+        summary_row.addWidget(self.cb_summary)
+        summary_row.addWidget(self.cb_research)
+        summary_row.addWidget(QLabel("Written by"))
+        self.summary_cb = QComboBox()
+        for value, label in (("auto", "auto"), ("claude-code", "Claude Code"),
+                             ("claude", "Claude API (key)"), ("ollama", "local Ollama")):
+            self.summary_cb.addItem(label, value)
+        i = self.summary_cb.findData(str(self.cfg.get("summary_provider", "auto")))
+        self.summary_cb.setCurrentIndex(max(0, i))
+        self.summary_cb.currentIndexChanged.connect(self._sync_summary)
+        self.summary_cb.setToolTip(
+            "'auto' tries Claude Code, then the Claude API, then the local Ollama.\n\n"
+            "Claude Code needs no API key: it runs the `claude` command you already use and\n"
+            "signs in with the login on this machine, so a summary costs subscription usage\n"
+            "rather than a separate bill. It sends the transcript once per job and writes each\n"
+            "section with the earlier ones in view.\n\n"
+            "Claude API (key) is the same models over the direct API, which enforces the output\n"
+            "shape in the decoder rather than asking for it. Needs ANTHROPIC_API_KEY or a key\n"
+            "in ~/.config/sinribe/anthropic_key.\n\n"
+            "Local Ollama needs no network at all, but reads the recording in chunks and writes\n"
+            "fewer, thinner sections.")
+        summary_row.addWidget(self.summary_cb)
+        self.summary_status = QLabel("")
+        self.summary_status.setObjectName("Subtle")
+        summary_row.addWidget(self.summary_status)
+        summary_row.addStretch(1)
+        g.addLayout(summary_row, 7, 0, 1, 4)
+
         g.setColumnStretch(1, 1)
         g.setColumnStretch(3, 1)
 
@@ -358,6 +408,7 @@ class MainWindow(QWidget):
         v.addWidget(self.opts_body)
         root.addWidget(card)
         self._sync_speaker_inputs()
+        self._sync_summary()
         self._sync_quality()
 
     def _toggle_options(self) -> None:
@@ -372,6 +423,50 @@ class MainWindow(QWidget):
             w.setVisible(mode == "range")
 
     # ---------------------------------------------------------------- run
+    def _sync_summary(self) -> None:
+        """Grey out what the current choice cannot do, and name the model that would write it.
+
+        The status label is the honest answer to "what happens if I press Start": it asks the
+        provider layer, which probes for a key or a running Ollama without making a request.
+        """
+        on = self.cb_summary.isChecked()
+        for w in (self.cb_research, self.summary_cb, self.summary_status):
+            w.setEnabled(on)
+        if not on:
+            self.summary_status.setText("")
+            return
+
+        provider = self.summary_cb.currentData()
+        # Web research needs a provider that can search. On the local path the checkbox is not
+        # just ineffective, it is misleading, so it is made unreachable rather than explained
+        # afterwards. Asked of the provider rather than hardcoded: both cloud paths can search.
+        can_search = provider == "auto" or summary_mod.can_research(provider)
+        self.cb_research.setEnabled(can_search)
+        if not can_search:
+            self.cb_research.setChecked(False)
+
+        cfg = dict(self.cfg)
+        cfg["summary_provider"] = provider
+        try:
+            chosen = summary_mod.pick(cfg)
+            skipped = list(getattr(chosen, "skipped", []) or [])
+            if skipped:
+                # "auto" fell back. Said in the row itself, because a brief written by the 4B
+                # local model while the user believes Claude wrote it is the failure this
+                # label exists to prevent.
+                self.summary_status.setText(f"\u2192 {chosen.label} (fallback, see tooltip)")
+                self.summary_status.setToolTip("Skipped:\n" + "\n".join(skipped))
+            else:
+                self.summary_status.setText(f"\u2192 {chosen.label}")
+                self.summary_status.setToolTip("")
+        except summary_mod.Unavailable as e:
+            # The specific reason, not a generic "unavailable": the whole point of probing here
+            # is that the user learns what to fix before pressing Start rather than after.
+            reason = str(e).strip().splitlines()[0]
+            self.summary_status.setText(f"cannot run: {reason[:70]}"
+                                        + ("\u2026" if len(reason) > 70 else ""))
+            self.summary_status.setToolTip(str(e))
+
     def _build_run(self, root: QVBoxLayout) -> None:
         card, v = _card()
         top = QHBoxLayout()
@@ -444,9 +539,15 @@ class MainWindow(QWidget):
         self.open_folder_btn.clicked.connect(self._open_folder)
         btns.addWidget(self.open_folder_btn)
         self.open_md_btn = QPushButton("Open transcript")
-        self.open_md_btn.setObjectName("Primary")
         self.open_md_btn.clicked.connect(self._open_md)
         btns.addWidget(self.open_md_btn)
+        # The primary action when there is a summary: it is the thing the user will actually
+        # read, and the transcript is the evidence behind it.
+        self.open_summary_btn = QPushButton("Open summary")
+        self.open_summary_btn.setObjectName("Primary")
+        self.open_summary_btn.clicked.connect(self._open_summary)
+        self.open_summary_btn.hide()
+        btns.addWidget(self.open_summary_btn)
         v.addLayout(btns)
         self.done_card.hide()
         root.addWidget(self.done_card)
@@ -632,6 +733,9 @@ class MainWindow(QWidget):
             "write_vtt": self.cb_vtt.isChecked(),
             "llm_enrich": self.cb_llm.isChecked(),
             "review_section": self.cb_review.isChecked(),
+            "web_summary": self.cb_summary.isChecked(),
+            "summary_research": self.cb_research.isChecked(),
+            "summary_provider": self.summary_cb.currentData(),
             "output_dir": self.out_edit.text(),
             "last_url": self.url_edit.text().strip(),
         })
@@ -652,6 +756,33 @@ class MainWindow(QWidget):
         out = Path(self.out_edit.text() or self.cfg["output_dir"]).expanduser()
         cfg = self._collect_cfg()
         save_config(cfg)
+
+        # Checked here as well as in the pipeline, because here it costs a dialog and there it
+        # costs the user starting a job, walking away, and coming back to a setup error.
+        if cfg.get("web_summary"):
+            try:
+                provider = summary_mod.pick(cfg)
+            except summary_mod.Unavailable as e:
+                QMessageBox.warning(
+                    self, "Sinribe",
+                    f"The summary cannot be generated:\n\n{e}\n\n"
+                    f"Untick 'Summary + HTML presentation' to transcribe without it.")
+                return
+            skipped = list(getattr(provider, "skipped", []) or [])
+            if cfg.get("summary_research") and not provider.supports_research:
+                QMessageBox.warning(
+                    self, "Sinribe",
+                    f"Web research was requested, but {provider.label} cannot search the web."
+                    + ("\n\nSkipped:\n" + "\n".join(skipped) if skipped else "")
+                    + "\n\nFix the Claude provider, or untick 'Verify with web research'.")
+                return
+            if skipped:
+                answer = QMessageBox.question(
+                    self, "Sinribe",
+                    f"The summary will be written by {provider.label}, because:\n\n"
+                    + "\n".join(skipped) + "\n\nContinue with this provider?")
+                if answer != QMessageBox.StandardButton.Yes:
+                    return
 
         self.log_view.clear()
         self.speakers.hide()
@@ -683,8 +814,15 @@ class MainWindow(QWidget):
     def _set_inputs_enabled(self, on: bool) -> None:
         for w in (self.model_cb, self.lang_cb, self.spk_cb, self.diar_cb, self.num_spin,
                   self.min_spin, self.max_spin, self.cb_json, self.cb_srt, self.cb_vtt,
-                  self.cb_llm):
+                  self.cb_llm, self.cb_summary):
             w.setEnabled(on)
+        # Re-derives which of the summary controls are legal, instead of enabling all of them
+        # and letting "web research" come back on the local provider.
+        if on:
+            self._sync_summary()
+        else:
+            for w in (self.cb_research, self.summary_cb):
+                w.setEnabled(False)
 
     def _render_detail(self) -> None:
         secs = time.monotonic() - self._started_at
@@ -709,20 +847,27 @@ class MainWindow(QWidget):
         self._result = result
         self.bar.setValue(1000)
         self.phase_lbl.setText("Done")
-        # A job served entirely from cached stages reports an absurd realtime factor (hundreds of
-        # x) that reads as a bug rather than a hit. Say what actually happened instead.
-        if result["elapsed"] < 5.0:
-            self.detail_lbl.setText(
-                f"{human_duration(result['elapsed'])}  ·  resumed from cache")
+        # What this run demonstrated, which on a resumed job is not its wall clock. The old
+        # version only caught a job served ENTIRELY from cache (elapsed < 5s) and printed the
+        # end-to-end factor for everything else — so a re-run that reused all three of the
+        # recommended rung's passes and re-ran only diarization announced "29.5× realtime" for a
+        # setting labelled 10.7×, and then taught the slider to promise that speed for good.
+        rtf = presets.trustworthy_rtf(result)
+        note = presets.speed_note(result).strip(" ()")
+        # The "resumed" wording is a fallback for a job too fast to have done anything, not a
+        # rule about the clock: a two-minute clip really can decode in under five seconds, and
+        # that run has a speed worth reporting.
+        if rtf:
+            detail = f"{human_duration(result['elapsed'])}  ·  {note}"
+        elif result["elapsed"] < 5.0:
+            detail = f"{human_duration(result['elapsed'])}  ·  resumed from cache"
         else:
-            self.detail_lbl.setText(
-                f"{human_duration(result['elapsed'])}  ·  "
-                f"{result['realtime_factor']:.1f}× realtime")
-            # Teach the estimate what this machine actually does. A cache-served job is excluded
-            # above, since its realtime factor describes the cache and not the recogniser.
-            presets.record_rtf(self.cfg, result.get("speed_target", self.cfg.get("speed_target")),
-                               result.get("realtime_factor", 0.0))
-            self._sync_quality()
+            detail = human_duration(result["elapsed"]) + (f"  ·  {note}" if note else "")
+        self.detail_lbl.setText(detail)
+        # Teach the estimate what this machine actually does — but only from a run that did the
+        # work. record_rtf ignores a zero, which is what a cache-served run reports.
+        presets.record_rtf(self.cfg, result.get("speed_target", self.cfg.get("speed_target")), rtf)
+        self._sync_quality()
         self.start_btn.setEnabled(True)
         self.cancel_btn.setEnabled(False)
         self._set_inputs_enabled(True)
@@ -737,11 +882,41 @@ class MainWindow(QWidget):
         if not r:
             return
         names = ", ".join(sorted(r["stats"]))
-        self.done_lbl.setText(
+        lines = [
             f"Transcribed <b>{Path(r['source']).name}</b> — {len(r['stats'])} "
-            f"speakers ({names}), {len(r['turns'])} turns.<br>"
+            f"speakers ({names}), {len(r['turns'])} turns.",
             f"Wrote {len(r['written'])} files to "
-            f"<code>{Path(r['markdown_path']).parent}</code>")
+            f"<code>{Path(r['markdown_path']).parent}</code>",
+        ]
+        summary = r.get("summary")
+        if summary:
+            meta = summary.get("meta", {})
+            note = f"{len(summary['sections'])} sections by {meta.get('label', 'a model')}"
+            if meta.get("research"):
+                checks = (summary.get("check") or {}).get("checks", [])
+                stale = sum(1 for c in checks
+                            if c.get("status") in ("outdated", "incorrect", "disputed"))
+                note += (f", checked against the web ({stale} of {len(checks)} claims outdated "
+                         f"or disputed)")
+            elif meta.get("research_error"):
+                note += f", <b>without the web check</b> ({meta['research_error'][:160]})"
+            if r.get("summary_seconds"):
+                note += f", in {human_duration(float(r['summary_seconds']))}"
+            lines.append(f"Summary: {note}.")
+        elif r.get("summary_error"):
+            # Stated in the window, not just logged. The transcript is fine and the job says
+            # "Done", so a summary that quietly failed would otherwise be noticed days later by
+            # someone looking for a file that was never written.
+            lines.append(f"<b>The summary was not written:</b> {r['summary_error']}")
+        self.done_lbl.setText("<br>".join(lines))
+        has_summary = bool(r.get("summary_path"))
+        self.open_summary_btn.setVisible(has_summary)
+        # Whichever of the two the user most likely wants gets the accent. The theme selects on
+        # the object name, and Qt only re-reads that on an explicit unpolish/polish.
+        self.open_md_btn.setObjectName("" if has_summary else "Primary")
+        style = self.open_md_btn.style()
+        style.unpolish(self.open_md_btn)
+        style.polish(self.open_md_btn)
 
     def _on_failed(self, msg: str, kind: str) -> None:
         self._tick.stop()
@@ -809,6 +984,11 @@ class MainWindow(QWidget):
     def _open_md(self) -> None:
         if self._result:
             QDesktopServices.openUrl(QUrl.fromLocalFile(self._result["markdown_path"]))
+
+    def _open_summary(self) -> None:
+        path = (self._result or {}).get("summary_path")
+        if path:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     # ---------------------------------------------------------------- close
     def closeEvent(self, ev) -> None:

@@ -10,6 +10,7 @@ from __future__ import annotations
 import datetime as _dt
 from pathlib import Path
 
+from .. import presets
 from ..merge import Turn
 from ..textfmt import hhmmss, hm, hms, human_duration, slugify
 
@@ -161,16 +162,20 @@ def render(
     lines.append(model_line)
     uploader = str(result.get("uploader") or "")
     if source_is_url:
+        published = str(result.get("published") or "")
         lines.append(f"**Source** [{raw_source}]({raw_source})"
-                     + (f" · **Channel** {uploader}" if uploader else ""))
+                     + (f" · **Channel** {uploader}" if uploader else "")
+                     + (f" · **Published** {published}" if published else ""))
     elif src:
         lines.append(f"**Source** `{src}`")
     stamp = result.get("finished_at") or _dt.datetime.now().strftime("%Y-%m-%d %H:%M")
     tail = f"**Transcribed** {stamp}"
     if elapsed:
         tail += f" · {human_duration(elapsed)}"
-        if rtf:
-            tail += f" ({rtf:.1f}× realtime)"
+        # Not the end-to-end factor: on a resumed job that measures the checkpoint cache, and a
+        # transcript that claims 29.5x for a 10.7x setting is a lie its own reader cannot catch.
+        note = presets.speed_note(result)
+        tail += note or (f" ({rtf:.1f}× realtime)" if rtf else "")
     lines.append(tail)
     # Loud, and in the document rather than only in a log line that scrolls away: a truncated
     # transcript otherwise looks exactly like a short recording.

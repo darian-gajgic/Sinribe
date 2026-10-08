@@ -17,7 +17,7 @@ sinribe 'https://youtube.com/watch?v=…' -o ~/Docs  # download a podcast, then 
 ## What it produces
 
 For `vorlesung.m4a` you get `vorlesung.md`, plus optionally `vorlesung.sinribe.json`,
-`vorlesung.srt` and `vorlesung.vtt`:
+`vorlesung.srt`, `vorlesung.vtt`, and a `vorlesung - Summary.html` briefing page:
 
 ```markdown
 # vorlesung
@@ -25,7 +25,7 @@ For `vorlesung.m4a` you get `vorlesung.md`, plus optionally `vorlesung.sinribe.j
 **Duration** 2:14:33 · **Speakers** 3 · **Language** de (0.98)
 **Model** large-v3 · CUDA · float16 · **Diarization** speaker-diarization-community-1 · **Quality** 20× target
 **Source** `/home/sinep/Recordings/vorlesung.m4a`
-**Transcribed** 2026-07-26 18:03 · 14m 21s (9.4× realtime)
+**Transcribed** 2026-07-26 18:03 · 14m 21s (21.0× realtime transcribing)
 
 | Speaker | Talk time | Share |
 |---|---|---|
@@ -62,6 +62,132 @@ where an hour of checking gets you the most back — considerably more than any 
 Every flagged passage is listed, in time order, so the section doubles as a checklist to work
 through against the audio; a hard 65-minute interview produces a few hundred. Set
 `review_max_spans` in the config if you would rather have only the *n* least confident.
+
+## Summary and HTML presentation
+
+Tick **Summary + HTML presentation** and the job does a second piece of work after the
+transcript: it writes a brief you can learn from instead of listening to the whole recording,
+saved next to the transcript as `<name> - Summary.html` and `<name> - Summary.md`.
+
+The page is ordered for someone who wants the substance fast:
+
+| Part | What it gives you |
+|---|---|
+| **The 1-minute version** | the whole idea in one paragraph, 4 to 6 key takeaways, why it matters, and the numbers worth remembering |
+| **What has changed since it was published** | only with the web check: every checked claim marked *outdated*, *incorrect*, *disputed*, *still open*, *still accurate* or *unverified*, what is true now, and since when |
+| **Key terms** | the vocabulary a newcomer needs, before the detail that uses it |
+| **The full summary** | one section per topic in the order the recording covers it: the point in one sentence, two to four paragraphs that explain it, the key points, and optional boxes for examples, evidence, forecasts, caveats, how-tos and definitions |
+| **Worth watching in the original** | two to four moments where the delivery or a demo matters |
+| **Test yourself** | five to eight questions with the answers folded away |
+
+The full summary is budgeted to stay well short of listening: about 15 % of the words spoken,
+between 400 and 3,000 words, so a ten-minute video gets about a page and a two-hour interview
+about a quarter of an hour of reading. The top of the page says how long it takes to read against
+how long the recording is, and how current it is: when the video was published, and either the web check's verdict counts or a plain
+"not checked against the web". Every timestamp links into the video at that moment when the
+source is YouTube, so any claim can be heard in the speaker's own words.
+
+The page is one self-contained file. No JavaScript, no CDN, no fonts fetched: it opens from a
+`file://` path, prints cleanly, and will still render on a machine with no network.
+
+En and em dashes are stripped from everything the model writes: between digits they become a
+hyphen, spaced they become a comma. They are the clearest tell that a page was machine-written,
+and asking a model not to use them only works about half the time.
+
+### Who writes it
+
+| Provider | Needs | What you get |
+|---|---|---|
+| **Claude Code** (default) | nothing: the `claude` CLI and the login you already have | The whole recording in one context. Costs subscription usage, no API key and no separate bill |
+| Claude API | `ANTHROPIC_API_KEY`, or the key in `~/.config/sinribe/anthropic_key`, or `ant auth login` | The same models over the direct API, which enforces the output shape in the decoder rather than asking for it. Billed per token |
+| Local Ollama | `gemma3:4b` already running on `:11435` | Offline and free. Reads the recording in chunks and writes fewer, thinner sections |
+
+`auto` tries them in that order, so on a machine where you already use Claude Code the checkbox
+just works. Whichever ran is named in the page's footer along with what it cost, so you can always
+tell what you are reading.
+
+**Claude Code needs no key because it is the same thing you would do by hand.** It runs
+`claude -p` and signs in with the login on this machine. Each job is one resumed session: the
+transcript is sent once and every later pass continues that session, so the transcript is read
+from cache (measured: 2 input tokens against 11,677 read from cache on a resumed turn) and each
+section is written with the earlier sections already in view, which is what keeps section 9 from
+restating section 2. The CLI runs `--restricted` from a scratch directory, so the summariser has
+no shell, no code execution and no project `CLAUDE.md` to inherit.
+
+The default local model, `gemma3:4b`, is the honest minimum rather than a recommendation. Measured
+on a real interview it writes a complete page for 25 minutes of audio in about two minutes, but it
+is visibly weaker than the Claude path and it fails in ways a bigger model does not: on a
+100-second clip it produced a plan with no usable sections at all. If you mean to use the offline
+path regularly, pull something larger, which this machine's 16 GB of VRAM has room for:
+
+```bash
+ollama pull qwen3:14b
+# then set "llm_model": "qwen3:14b" in ~/.config/sinribe/config.json
+```
+
+Nothing is guessed silently. The provider is probed *before* the audio is decoded, using
+`claude auth status` or a local credential read rather than a billed request, so a missing login
+costs you a dialog rather than the whole job. A summary that fails after the transcript is written
+says so in the window instead of just not appearing.
+
+### Web research
+
+**Verify with web research** checks the recording against what is true *today*. That matters
+most for AI: a two-month-old video about models, prices or company plans can already be wrong.
+
+1. While planning the brief, the model lists up to 16 specific, checkable claims from the
+   recording, time-sensitive ones first (model versions, benchmarks, prices, release dates,
+   company plans, predictions with a date), each with its timestamp.
+2. A separate research call searches the web and opens pages to find what is true now. It is told
+   the video's publication date, prefers primary sources and sources newer than the video, and
+   may not call a claim outdated on an undated source alone.
+3. A tool-free call turns the report into one verdict per claim, plus the notable developments
+   since the recording.
+4. The brief is then written with those verdicts in hand: an outdated claim is stated as said
+   *and* corrected where it comes up, flagged at the top of its section, listed in "What has
+   changed", and repeated as a heads-up inside the 1-minute version so a reader who stops there is
+   still warned.
+
+Links are held to what the search tools actually returned, not to what the model wrote. Every
+verdict other than *unverified* needs at least one such source or it is downgraded to
+*unverified*, links inside the prose are unlinked if they are not on the list, and the Sources
+section is filtered the same way. If the web check fails (a timeout, the CLI dying), the brief is
+still written from the transcript and says plainly at the top that the check did not run.
+
+It needs one of the two Claude providers; the local model has no network access, and asking for
+research with it is refused before the job starts rather than quietly skipped.
+
+```bash
+sinribe "https://youtube.com/watch?v=..." --research           # implies --summary
+sinribe lecture.m4a --summary                                  # default: Claude Code, no key
+sinribe lecture.m4a --summary --summary-provider ollama        # fully offline
+```
+
+### What a summary costs
+
+Measured on 8 October 2026 with the current pipeline, a 10m45s video with the web check on:
+**5 minutes 24 seconds and $3.25 of usage** for 3 sections, 14 claims checked and a three-minute
+read. The figure below is from before the rework, on Opus 5; expect the long case to cost less
+now that sections have a word budget, but it has not been re-measured.
+
+Measured on the two-hour interview this feature was built against, with research on:
+**18 minutes and $17.97 of usage**, for a 104 kB page with 12 sections, 72 blocks, 36 quotes and
+17 verified links. That is fifteen Opus calls, and each section turn re-reads the conversation so
+far, so the cost grows with the number of sections. The page footer and the log both report the
+figure for the run you actually did.
+
+If that is more than a recording is worth to you, the levers in order of effect:
+
+| Lever | How | Effect |
+|---|---|---|
+| Skip the research pass | leave **Verify with web research** unticked | Removes the web turns and the source-gathering |
+| Fewer sections | `"summary_max_sections": 8` in the config | Roughly linear: 8 sections cost about two thirds of 12 |
+| Fewer claims checked | `"summary_max_claims": 8` in the config | Shortens the research pass |
+| A cheaper model | `"summary_model": "claude-sonnet-5-5"` | Much cheaper per token, visibly less incisive |
+| Nothing at all | `--summary-provider ollama` | Free and offline, and much thinner |
+
+A short recording is cheap either way: the section count scales with duration, so a ten-minute
+clip gets three sections rather than twelve.
 
 ## Pasting a link
 
@@ -180,6 +306,11 @@ reused instead of recomputed. Checkpoints older than 14 days are purged at start
 The sidecar `.json` holds word-level timestamps, so renaming a speaker (`Person 1` →
 `Prof. Müller`) and re-exporting takes milliseconds and never touches the GPU.
 
+Re-export does not touch the summary page. Its quotes carry whatever speaker names the transcript
+had when it was written, and regenerating it means another run of the model rather than a rewrite
+of a file, so renaming speakers afterwards leaves the old names in the summary. Rename first if
+you care, or re-run with the summary ticked.
+
 ## Options
 
 | Option | Default | Notes |
@@ -193,6 +324,9 @@ The sidecar `.json` holds word-level timestamps, so renaming a speaker (`Person 
 | Sidecar `.json` | on | Needed for instant re-export |
 | `.srt` / `.vtt` | on | Speaker-prefixed cues |
 | LLM chapters + summary | off | Uses `gemma3:4b` on your local Ollama (`:11435`); still offline |
+| Summary + HTML presentation | off | Writes a briefing on the recording and renders it as a standalone web page. See below |
+| Verify with web research | off | Lets the summary check claims against the web and collect real sources. Needs a Claude provider |
+| Written by | `auto` | `auto`, `claude-code` (no key needed), `claude` (the API) or `ollama` (local) |
 | `yt_cookies_from_browser` | `""` | Config-file only. Set to `"firefox"` etc. for gated episodes |
 | `keep_downloads` | `true` | Set false to expire cached downloads after `download_cache_days` |
 
@@ -212,16 +346,17 @@ this file"* rather than *"high quality"*.
 | 20× | 1 | 20× | 21.3 % | `large-v3`, one pass in order |
 | 14× | 2 | 15× | 20.8 % | + a batched pass, voted |
 | **10× ★** | 3 | 11× | **20.4 %** | + a second *model*, voted |
-| 5× | 5 | 5.4× | 20.5 % | five passes, two models |
-| 2× | 7 | 2.7× | 20.6 % | seven passes — slower and no better |
-| 1× | 9 | 2.1× | 20.6 % | nine passes — slowest, and still no better |
+| 5× | 5 | — | not scored | + a pass on noise-reduced audio |
+| 2× | 7 | — | not scored | + a cleaned pass and a wider beam |
+| 1× | 9 | — | not scored | + a very wide beam — the beam is measured to buy nothing |
 
-**The ladder stops paying at three passes.** Everything below the ★ costs more time for the same
-error rate or slightly worse: a 1× run of the benchmark interview takes 31 minutes against about
-6 for the recommended setting and lands 0.2 pp behind it. Each pass after the second model is a
-re-filtered or re-beamed run of a model that has already voted, so it repeats that model's
-mistakes, and repeated mistakes win majorities. The slow rungs are kept because the ladder has to
-end somewhere, not because they are better.
+**Measured through three passes; uncalibrated below that.** The figures the slow rungs used to
+carry were withdrawn on 2026-08-07: they were measured while a bug fed those rungs' conditioned
+passes the *unfiltered* audio, so passes that were supposed to hear the recording differently
+returned the first pass's words verbatim and voted twice. The bug is fixed and those rungs now
+run what they advertise — but what they advertise has never been scored, so the slider shows them
+as targets rather than as measurements. The ★ rung is unaffected: its three passes were always
+genuinely different, and 20.4 % is its own measured number.
 
 ### How the slow half works, and why the fast half doesn't just do it
 
@@ -240,13 +375,15 @@ rescues an answer the model already had; here the model's probabilities are them
 whether it heard *das* or *es*, and searching a wrong distribution harder returns the same wrong
 answer at five times the price.
 
-Returns flatten at five passes and turn back up past nine, as weaker decodes start outvoting
-better ones. The slowest positions are kept so you can confirm that on your own recordings; the
-★ sits where the curve bends.
+Whether the passes past the third are worth their time is currently unknown — see the note under
+the table. The ★ sits at the last point on the curve with a measured number behind it.
 
-Timings assume speaker diarization is cached, which is what a re-run costs; a first pass over a new
-file adds roughly two minutes for that. They came off one machine on one day — the app replaces
-them with what your own hardware actually does, after your first run at each setting.
+Timings are **transcription only**: speaker diarization is excluded, because on a re-run it comes
+from cache and including it would make the same setting look like a different speed depending on
+what was already on disk. A first pass over a new file adds roughly two minutes for that stage.
+They came off one machine on one day — the app replaces them with what your own hardware actually
+does, after your first run at each setting that decodes every one of its passes. A run that
+resumes from cache reports what it reused instead of inventing a speed from it.
 
 ### Names & terms — worth trying, not a cure
 
@@ -323,6 +460,75 @@ two-model consensus decoding got cancelled before it was built.
 Downloaded podcasts are large and are kept indefinitely by default. To reclaim space, either
 delete `~/.cache/sinribe/downloads/` or set `"keep_downloads": false`.
 
+## Against Vibe
+
+Vibe is another desktop transcription app, so it is the honest thing to measure against rather
+than against a number from a paper. Both were given the same file, and both outputs were scored
+against the same human transcript with `./sinribe-eval`.
+
+The file was chosen to be punishing: a 1 h 05 m coach interview in **broad Bavarian**, badly
+recorded — two speakers, a real room, no headset, no studio. Neither error rate below is what
+either tool does on clean audio, and neither is meant to be. Strong regional accent over poor
+audio is the case that actually separates recognisers; clean speech is the case where everything
+scores well and nothing is learned. The reference is a human transcript of the **whole** recording
+— not a sampled stretch of it — 8980 words after fillers and `(unverständlich)` markers are
+dropped from both sides. It arrives in two parts whose timestamps restart at zero, so part two's
+`[00:10:52]` is audio minute 36:51; the scorer detects that and aligns on word sequence rather
+than on the reference clock.
+
+Three Sinribe runs are in the table, because the useful question is not only whether it beats Vibe
+but which setting you should actually leave the slider on.
+
+| metric | vibe | **10× ★, 3 passes** | 1×, 9 passes | 2 passes (Win) | manual |
+|---|---|---|---|---|---|
+| words | 9503 | 9316 | 9361 | 9269 | 8980 |
+| word match | 86.4 % | **86.7 %** | 86.7 % | 85.2 % | ref |
+| substitutions | 830 | 766 | 783 | **759** | ref |
+| deletions | **390** | 432 | 411 | 571 | ref |
+| insertions | 913 | **768** | 792 | 860 | ref |
+| **WER** | 23.8 % | **21.9 %** | 22.1 % | 24.4 % | ref |
+| 5-min buckets won (13) | 2 | 3 | **7** | 1 | — |
+| segments | 929 | 160 | 160 | 169 | 104 |
+| named entities (of 15) | 15 | 15 | 15 | 15 | 15 |
+| speaker accuracy | none | **97.3 %** | 97.3 % | 95.9 % | ref |
+| timestamp drift (median) | 7.0 s | **2.5 s** | 2.5 s | 3.0 s | ref |
+| — within 3 s | 4/20 | 11/20 | 11/20 | 11/20 | ref |
+| duplicate words /1k | **1.4** | 4.1 | 1.9 | 4.7 | 0.9 |
+| repeat runs ≥ 3 | **0** | 5 | 0 | 5 | 1 |
+| `" -"` spacing bug | **0** | 28 | 33 | 28 | 0 |
+| run-on unpunctuated blocks | 18 | 3 | **2** | 5 | 1 |
+| runtime | n/a | **2 m 14 s** (29.5×) | 31 m 00 s (2.1×) | 9 m 09 s (7.5×) | — |
+
+**The recommended setting is also the best one.** The ★ rung — three voted passes — scores 21.9 %
+in 2 m 14 s. The 1× rung spends 31 minutes, fourteen times as long, to land 0.2 pp *behind* it.
+That is the ladder's own conclusion arrived at from the other direction, on a recording it was
+not tuned on.
+
+**Where Vibe is genuinely better.** It deletes fewer words (390 against 432), and its text is
+cleaner: 1.4 duplicated words per thousand against 4.1, no repeated runs of three or more against
+five, and none of the `" -"` spacing artifacts Sinribe emits 28 times in this transcript. That
+last one is a rendering bug on this side, not a recognition result, and it is not fixed yet.
+
+**Where the gap is not close.** Vibe returned no speaker labels at all, so a two-person interview
+arrives as one undifferentiated wall of text; Sinribe places 97.3 % of it correctly. Its
+timestamps drift a median 7.0 s against 2.5, with 4 of 20 checked cues landing within three
+seconds against 11. And it emits 929 segments where the human transcriber made 104 — the
+transcript is shredded into fragments, with 18 run-on unpunctuated blocks against 2 — so what you
+have to read afterwards is worse than the word error rate on its own suggests. Both tools found
+all 15 named entities.
+
+**How to read the bucket row.** The recording is cut into thirteen five-minute windows and each
+window goes to whichever of the four transcripts scored best in it, so the four columns sum to 13.
+The 7 against the 1× column therefore means "best of four in seven windows", not "beat Vibe seven
+times" — the Sinribe runs are mostly taking windows off each other.
+
+Three caveats worth stating. The 2-pass column was run on Windows from a different encode of the
+same interview — a 1 h 08 m `.ogg` rather than the `.wav` the others used — so its deletion count
+especially is not strictly comparable to the rest of the row. The runtimes are transcription only,
+with diarization served from cache; a first run over a new file adds roughly two minutes for that
+stage. And this is one recording: hard, German, real, but one. It reports what happened on this
+interview, not what will happen on yours — which is what the scorer is shipped for.
+
 ## Tests
 
 ```bash
@@ -344,10 +550,11 @@ sinribe/
   fetch.py               yt-dlp download + metadata probe (the only networked module)
   audio.py               ffmpeg probe/decode/clip
   enrich.py              optional Ollama chapters + summary
+  summary/               the briefing: providers (Claude API / Ollama), passes, output schema
   textfmt.py             sentence splitting, timestamp formatting
   workers/asr_worker.py  faster-whisper subprocess   (.venv)
   workers/diar_worker.py pyannote subprocess         (.venv-diar)
-  render/                markdown, subtitles, sidecar
+  render/                markdown, subtitles, sidecar, the summary web page
   ui/                    PySide6 window, worker thread, speaker panel
 ```
 
