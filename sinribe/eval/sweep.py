@@ -56,18 +56,20 @@ def _run_variant(audio: Path, out_dir: Path,
     cache = JOBS_DIR / _job_key(audio)
     cold = [name for name, f in (("decode", "decoded.wav"), ("diarize", "diar.json"))
             if not (cache / f).exists()]
-    # A voting rung's passes are checkpointed individually, so a variant that shares passes with
-    # an earlier one runs only the new ones and reports a wildly optimistic speed. Caught the
-    # first time it happened: a three-pass rung measured 42x because two passes were already on
-    # disk, against a true 10.7x.
-    warm_passes = len(list(cache.glob("asr-pass*.json")))
-    if warm_passes:
-        cold.append(f"{warm_passes} cached pass(es) — speed flattered")
 
     spec = JobSpec(input_path=audio, output_dir=out_dir, cfg=cfg)
     runner = Runner(spec, on_log=lambda m: None)
     t0 = time.time()
     result = runner.run()
+    # A voting rung's passes are checkpointed individually, so a variant that shares passes with
+    # an earlier one runs only the new ones and reports a wildly optimistic speed. Caught the
+    # first time it happened: a three-pass rung measured 42x because two passes were already on
+    # disk, against a true 10.7x. The runner now counts this itself, so the sweep asks it rather
+    # than guessing from what is on disk before the run.
+    ran = int(result.get("asr_passes_ran") or 0)
+    total = int(result.get("asr_passes_total") or 0)
+    if total and ran < total:
+        cold.append(f"{total - ran} of {total} pass(es) came from cache — speed flattered")
     return Path(result["markdown_path"]), time.time() - t0, result, cold
 
 
@@ -119,19 +121,25 @@ def run_sweep(configs: Path, audio: Path, reference: Path,
             results.append({"name": name, "error": f"{type(e).__name__}: {e}"})
             continue
         rep = score(ref, load_hypothesis(md), nz, label=name)
-        rtf = float(info.get("duration", 0.0)) / elapsed if elapsed else 0.0
+        # Transcription-only, which is the quantity `presets.measured_rtf` holds and therefore the
+        # only one a sweep may copy into it. End-to-end wall clock varies with what the run had
+        # cached and has been mistaken for a decode speed at least twice in this project.
+        rtf = float(info.get("asr_realtime_factor") or 0.0)
         rows.append((name, rep, elapsed, rtf, cold))
         warn = f"   ⚠ timing includes {' + '.join(cold)}" if cold else ""
-        print(f"    WER {rep.total.wer:.1%}   {rtf:.1f}x realtime   ({elapsed:.0f}s){warn}",
-              flush=True)
+        print(f"    WER {rep.total.wer:.1%}   {rtf:.1f}x realtime   "
+              f"({float(info.get('asr_seconds') or 0.0):.0f}s decoding of {elapsed:.0f}s"
+              f" total){warn}", flush=True)
         results.append({**rep.to_dict(), "name": name, "seconds": round(elapsed, 1),
+                        "asr_seconds": info.get("asr_seconds"),
                         "realtime_factor": round(rtf, 2), "cold_stages": cold,
                         "settings": variant})
 
     print("\n" + _table(rows))
-    print("\nRTF is end-to-end wall clock. The first variant of a sweep usually looks slower "
-          "than it is:\nit pays for the shared decode and diarization that every later variant "
-          "reuses. Anything that\nchanges the audio (audio_filter) pays for them again.")
+    print("\nRTF is transcription only — decode and diarization are excluded, because every "
+          "variant after\nthe first reuses them and an end-to-end figure would mostly measure "
+          "that. It is the number\n`presets.measured_rtf` holds, so a rung can be recalibrated "
+          "straight from this column.")
     if out:
         Path(out).write_text(json.dumps(results, indent=2, ensure_ascii=False) + "\n")
         print(f"\nwrote {out}")

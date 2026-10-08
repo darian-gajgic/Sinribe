@@ -9,13 +9,19 @@ The slow half of the ladder runs the audio through SEVERAL decodes and votes on 
 (`rover.py`). That is the only mechanism found that converts time into accuracy: 21.3 % for one
 pass, 20.4 % for three. Widening the beam instead does nothing at all.
 
-Voting stops paying after about the third pass and then very slowly gets worse — 20.5 % at five,
-20.6 % at seven and at nine — because every pass after the second model is a re-run of a model
-that has already voted, so it duplicates that model's errors rather than offsetting them, and
-duplicated errors win majorities. The ladder keeps the slow rungs, but the notes below say so
-plainly: past the recommended rung the extra time buys nothing. Measured 2026-08-07 by voting on
-the nine cached pass outputs of one 1x run, prefix by prefix, which is exactly what each rung
-would have decoded.
+Voting stops paying after about the third pass. Through three passes that is measured and holds.
+Past three it is currently UNMEASURED, and the numbers that used to sit here (20.5 % at five,
+20.6 % at seven and nine) have been withdrawn — see the note on the slow rungs below. They were
+produced by a run in which the denoise and clean passes silently decoded UNFILTERED audio, so
+they returned output byte-identical to the pivot: at five passes the pivot cast two of the five
+votes and at seven or nine it cast three. "The extra passes duplicate a model that has already
+voted" was therefore not a finding about voting, it was a description of a bug (fixed 2026-08-07
+in `pipeline._decode`, which now hands each pass the audio its own settings ask for).
+
+What survives that correction: the three-pass rung, whose passes were always genuinely distinct,
+and the shape of the curve up to it — 21.3 % for one pass, 20.8 % for two, 20.4 % for three.
+Whether five real passes beat three is an open question again, and answering it means re-running
+`python -m sinribe.eval --sweep` on the benchmark interview.
 
 Everything here is calibrated by `python -m sinribe.eval --sweep` against a human transcript of a
 deliberately hard recording. Two rules the calibration learned the hard way, both in HANDOFF.md:
@@ -118,12 +124,13 @@ class Rung:
 # 21.6 %, because beam search only rescues an answer the model already had, and here the model's
 # probabilities are themselves wrong.
 #
-# It stops paying at THREE passes. Five recovers more correct words (87.5 % against 87.3 %) but
-# invents more too, so WER ticks back up. Seven and nine passes are on the slider at the user's
-# request and are deliberately left unlabelled: an offline simulation predicted 20.1 % for them,
-# the same simulation predicted 20.1 % for five passes, and the shipped code then measured
-# 20.5 %. A number that has not survived the real implementation does not get printed as if it
-# had — that mistake has already been made twice in this file's history.
+# Above three passes the ladder is UNCALIBRATED. The 5x, 2x and 1x rungs carried measured figures
+# until 2026-08-07, when the passes they added turned out not to be the passes they claimed: the
+# audio filter was read from the job config rather than the pass's, so "denoise" and "clean"
+# decoded the untouched WAV and returned the pivot's own words back to the vote. Those rungs are
+# now running something that has never been scored, and a number that has not survived the real
+# implementation does not get printed as if it had — that mistake has already been made twice in
+# this file's history, so the numbers come off rather than being quietly kept.
 #
 # Timings assume the speaker diarization is already cached, which is what a re-run costs; a first
 # pass over a new file adds roughly two minutes for that stage. They are also from one machine on
@@ -178,30 +185,31 @@ RUNGS: list[Rung] = [
          extra_passes=(P_BATCHED, P_TURBO),
          measured_rtf=10.7, measured_wer=0.204,
          recommended=True),
+    # The three rungs below add noise-conditioned passes. Their old scores were measured while
+    # those passes were silently decoding unfiltered audio, so they described a different ladder
+    # than the one that now runs; the figures are withdrawn until a sweep re-earns them. Until
+    # then the slider shows these as targets, not measurements, which is the honest state.
     Rung(target_rtf=5, model="large-v3",
-         note="Five passes across two models, voted. Measured slightly WORSE than three "
-              "passes: it recovers more correct words but invents more too. Kept because the "
-              "balance may fall differently on your recordings.",
+         note="Five passes across two models, one of them on noise-reduced audio. NOT YET "
+              "SCORED: the previous measurement was taken while the noise reduction was not "
+              "actually being applied, so it described five passes of which one was a copy. "
+              "Three passes is the setting with a number behind it.",
          decode={"beam_size": 5},
-         extra_passes=(P_BATCHED, P_TURBO, P_TURBO_BATCHED, P_DENOISE),
-         measured_rtf=5.4, measured_wer=0.205),
+         extra_passes=(P_BATCHED, P_TURBO, P_TURBO_BATCHED, P_DENOISE)),
     Rung(target_rtf=2, model="large-v3",
-         note="Seven passes. Measured WORSE than three, and takes four times as long: the "
-              "extra passes are re-filtered and re-beamed versions of a model that has already "
-              "voted, so they mostly repeat its mistakes and outvote the one pass that got it "
-              "right. There is no reason to pick this over the recommended setting.",
+         note="Seven passes, two of them on conditioned audio. NOT YET SCORED for the same "
+              "reason as the setting above, and slow enough that it should not be picked on "
+              "faith: expect roughly four times the recommended setting's wait.",
          decode={"beam_size": 5},
-         extra_passes=(P_BATCHED, P_TURBO, P_TURBO_BATCHED, P_DENOISE, P_CLEAN, P_BEAM8),
-         measured_rtf=2.7, measured_wer=0.206),
+         extra_passes=(P_BATCHED, P_TURBO, P_TURBO_BATCHED, P_DENOISE, P_CLEAN, P_BEAM8)),
     Rung(target_rtf=1, model="large-v3",
-         note="Nine passes including a very wide beam search. Slowest available and measured "
-              "worse than three passes for ten times the wait — the beam-20 pass alone takes "
-              "longer than the entire recommended setting. Kept only so the ladder ends "
-              "somewhere; do not use it.",
+         note="Nine passes including a very wide beam search. Slowest available, NOT YET "
+              "SCORED, and the beam-20 pass alone takes longer than the entire recommended "
+              "setting — while beam width is the one thing measured to buy nothing at all. "
+              "Kept so the ladder ends somewhere; do not use it.",
          decode={"beam_size": 5},
          extra_passes=(P_BATCHED, P_TURBO, P_TURBO_BATCHED, P_DENOISE, P_CLEAN, P_BEAM8,
-                       P_BEAM20, P_WIDE_VAD),
-         measured_rtf=2.1, measured_wer=0.206),
+                       P_BEAM20, P_WIDE_VAD)),
 ]
 
 MIN_TARGET = min(r.target_rtf for r in RUNGS)
@@ -221,8 +229,51 @@ def observed_rtf(cfg: dict, rung: Rung) -> float | None:
         return None
 
 
+def trustworthy_rtf(result: dict) -> float:
+    """The transcription speed a finished job actually demonstrated — 0.0 if it demonstrated none.
+
+    A rung's speed is the cost of running ALL of its passes. A job that decoded two of three and
+    read the third off a checkpoint ran at no rung's speed, and neither did one that reused the
+    single pass it was asked for. Reporting its wall clock as a realtime factor is how a run at
+    the 10.7x rung came to print 29.5x — which reads, correctly, as the setting being ignored.
+
+    Diarization being cached does NOT disqualify a run: the figures in this file were measured
+    that way on purpose, so transcription-only is the comparison that holds.
+    """
+    ran = int(result.get("asr_passes_ran") or 0)
+    total = int(result.get("asr_passes_total") or 0)
+    rtf = float(result.get("asr_realtime_factor") or 0.0)
+    return rtf if total and ran == total and rtf > 0 else 0.0
+
+
+def speed_note(result: dict) -> str:
+    """The speed clause for a log line or a transcript header, or "" when there is nothing to say.
+
+    Every surface that prints a speed goes through here, so the log, the window and the transcript
+    cannot end up telling the user three different stories about the same run.
+    """
+    rtf = trustworthy_rtf(result)
+    if rtf:
+        return f" ({rtf:.1f}× realtime transcribing)"
+    ran = int(result.get("asr_passes_ran") or 0)
+    total = int(result.get("asr_passes_total") or 0)
+    if total and ran == 0:
+        return " (transcription reused from cache — this is not a transcription speed)"
+    if total and ran < total:
+        return f" ({ran} of {total} passes decoded, the rest reused from cache)"
+    if result.get("reused_stages"):
+        return " (partly reused from cache — this is not a transcription speed)"
+    return ""
+
+
 def record_rtf(cfg: dict, speed_target: float, realtime_factor: float) -> None:
     """Fold a finished job's speed into the running estimate for its rung.
+
+    `realtime_factor` must be the transcription-only figure from `trustworthy_rtf` — the same
+    quantity `measured_rtf` holds. Feeding it end-to-end wall clock mixes two different
+    measurements under one key, and feeding it a cache-served run teaches the slider to promise a
+    speed nothing can deliver. A zero is ignored, which is how a run with nothing honest to
+    report says so.
 
     Averaged with what was there rather than replacing it, so one job that happened to run while
     Ollama was loading a model does not become the number every future estimate is built on.
