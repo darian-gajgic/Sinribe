@@ -47,7 +47,7 @@ right and measurably made accuracy worse.
 ```
 
 The benchmark file is a 65-minute Bavarian-accented German interview recorded on an iPhone across
-a room (`~/Sinribe-Transcripts/Kev/`), with a hand-made reference the user estimates at ~95 %
+a room (kept outside the repo, since it is a private conversation), with a hand-made reference the user estimates at ~95 %
 accurate. It is deliberately hard: the two speakers score nine points apart.
 
 **Baseline, `large-v3` as shipped 2026-07-26:** WER **21.3 %**, 87.0 % of words correct,
@@ -620,7 +620,7 @@ indistinguishable from a real one.
 
 0. **Before changing any decode setting, run the sweep.** Three of the four changes that looked
    most promising on paper measured worse, one of them catastrophically. The benchmark file and
-   reference are in `~/Sinribe-Transcripts/Kev/` and a full sweep variant costs about five
+   reference are kept outside the repo (ask the owner) and a full sweep variant costs about five
    minutes, because the decoded audio and the diarization are shared across variants.
    The honest summary of where accuracy stands: word errors on this recording are dominated by
    the 10.5 % of words that *no* configuration tried so far gets right — fast, broad-dialect,

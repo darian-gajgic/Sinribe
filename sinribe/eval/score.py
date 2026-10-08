@@ -1,7 +1,7 @@
 """Score a transcript against a reference and say something useful about where it went wrong.
 
 A single WER number tells you a config changed something; it does not tell you what to do next.
-The breakdowns here are the ones that actually pointed at fixes on the Feuerläufer interview:
+The breakdowns here are the ones that actually pointed at fixes on the benchmark interview:
 
 * per speaker — the Bavarian interviewee scored nine points worse than the interviewer, which is
   what identified accent and mic distance rather than the pipeline as the problem;

@@ -3,7 +3,7 @@
 Alignment is deliberately SEQUENCE-based, never time-based. A reference stitched from two
 recordings has timestamps that restart mid-document, and a hypothesis produced by a different
 decode drifts by a second or two anyway; matching on word order sidesteps both problems, and it is
-what made the Feuerläufer reference usable without hand-repairing its timestamps first.
+what made the benchmark reference usable without hand-repairing its timestamps first.
 
 Two passes:
 
