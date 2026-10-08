@@ -85,16 +85,29 @@ if p is None:
 print(f"  ok: {name}")
 PY
 
-  say "verifying the whisper weights are cached"
-  HF_HUB_OFFLINE=1 "$HERE/.venv/bin/python" - <<'PY'
-from huggingface_hub import snapshot_download
+  # Fetched here because nothing else will: the workers force HF_HUB_OFFLINE=1 (pipeline._asr_env),
+  # so a model missing at this point makes the first transcription fail to load it.
+  say "downloading the whisper model (large-v3, ~3 GB, one time)"
+  HF_HUB_OFFLINE=0 "$HERE/.venv/bin/python" - <<'PY'
+import sys
+from faster_whisper import download_model
 try:
-    p = snapshot_download("Systran/faster-whisper-large-v3", local_files_only=True)
-    print(f"  ok: large-v3 at {p}")
-except Exception:
-    print("  large-v3 not in the local HF cache; it will download on first run "
-          "(~2.9 GB). Set HF_HUB_OFFLINE=0 for that run.")
+    p = download_model("large-v3")
+except Exception as e:
+    print(f"  FAILED to fetch large-v3: {type(e).__name__}: {e}", file=sys.stderr)
+    sys.exit(1)
+print(f"  ok: large-v3 at {p}")
 PY
+
+  # The default quality rung votes with this model; without it that pass is skipped and the
+  # default quietly loses accuracy. Optional, so a failure here warns instead of aborting.
+  if [[ -f "$HOME/.cache/sinribe/models/whisper-large-v3-turbo-german-ct2/model.bin" ]]; then
+    say "German turbo model already installed"
+  else
+    say "converting the German turbo model the default setting votes with (one time, 1.6 GB kept)"
+    PATH="$(dirname "$UV"):$PATH" "$HERE/tools/convert_german_models.sh" turbo \
+      || say "WARNING: German turbo model not installed; the default setting will run 2 of its 3 passes. Retry with: tools/convert_german_models.sh turbo"
+  fi
 fi
 
 # ---------------------------------------------------------------- launchers
