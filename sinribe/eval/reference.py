@@ -5,7 +5,7 @@ text/Markdown, Sinribe's own Markdown, and SRT/VTT. Nothing here needs python-do
 formats are zip archives with one XML part, which `zipfile` + `ElementTree` read in a dozen lines.
 
 The one non-obvious case this must survive: a reference stitched together from several recordings,
-whose timestamps RESTART at each part. The Feuerläufer interview is exactly that — its
+whose timestamps RESTART at each part. The benchmark interview is exactly that — its
 `[00:10:52]` in part two is audio minute 36:51 — and a loader that assumed monotonic time would
 either sort the turns into nonsense or reject the file. Parts are detected and numbered instead,
 and scoring never relies on reference timestamps for anything but diagnostics (see align.py).

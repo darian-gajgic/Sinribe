@@ -1,7 +1,7 @@
 """Turn transcript text into the comparable word sequence WER is defined over.
 
 The point of this module is to not charge the recogniser for things a reader would never call a
-mistake. On the Feuerläufer interview roughly one substitution run in eight was purely
+mistake. On the benchmark interview roughly one substitution run in eight was purely
 orthographic — `gernhabt`/`gern habt`, `soft skills`/`softskills`, `erstmal`/`erst mal` — and an
 unnormalised score reports those as errors, which then hides whether a real change helped.
 
@@ -16,7 +16,7 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 
-# Folded to the ASCII digraph so "Feuerläufer" and "Feuerlaeufer" — and "weiß" and "weiss" —
+# Folded to the ASCII digraph so "Läufer" and "Laeufer" — and "weiß" and "weiss" —
 # compare equal whichever spelling either transcript chose.
 _FOLD = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss",
                        "Ä": "ae", "Ö": "oe", "Ü": "ue",

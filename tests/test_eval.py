@@ -32,7 +32,7 @@ def make_docx(path: Path, lines: list[str]) -> Path:
 
 class TestNormalizer:
     def test_folds_umlauts_and_sharp_s(self):
-        assert Normalizer().words("Feuerläufer weiß") == ["feuerlaeufer", "weiss"]
+        assert Normalizer().words("Läufer weiß") == ["laeufer", "weiss"]
 
     def test_strips_punctuation_and_case(self):
         assert Normalizer().words("Ja, wirklich?!") == ["ja", "wirklich"]
