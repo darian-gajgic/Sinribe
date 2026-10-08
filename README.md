@@ -233,12 +233,17 @@ ffmpeg  ──►  16 kHz mono WAV  ──┬──►  pyannote  ──►  who
                                        (.venv, ctranslate2 cu12)
                                                   │
                                                   ▼
-                                    word-level alignment ──► Markdown / JSON / SRT / VTT
+                           words + sentences + voice prints ──► Markdown / JSON / SRT / VTT
 ```
 
-Whisper segments routinely straddle a speaker change, so attribution happens at the **word**
-level: each word goes to the diarization turn it overlaps most, short flickers ("mhm", "ja")
-get absorbed into the surrounding speaker, and the result is re-grouped into turns.
+Whisper segments routinely straddle a speaker change, so attribution starts at the **word**
+level: each word goes to the diarization turn it overlaps most. Then each **sentence** is decided
+as a whole, by a vote weighted by how long each speaker's words last, so a turn boundary that
+lands a second late no longer hands a sentence's last words to the next speaker. Finally a
+**voice print** of each speaker, built from their longer turns, checks every sentence of at least
+0.6 s and overrules the vote where the match is decisive (a cosine margin of 0.15). That is what
+catches a short answer the diarizer swallowed into the question. Short flickers ("mhm", "ja")
+are absorbed into the surrounding speaker, and the result is re-grouped into turns.
 
 ### Why two virtualenvs
 
@@ -515,6 +520,11 @@ Vibe is another desktop transcription app, so it is the honest thing to measure 
 than against a number from a paper. Both were given the same file, and both outputs were scored
 against the same human transcript with `./sinribe-eval`.
 
+It is the same recording as the [Accuracy](#accuracy) table above, scored differently.
+`./sinribe-eval` drops filler words, so its reference has 8980 words, while the published
+benchmark keeps them and counts 9,174. The absolute numbers therefore differ: 21.9 % against
+Vibe's 23.8 % here, 18.84 % against 20.51 % there. Sinribe leads in both.
+
 The file was chosen to be punishing: a 1 h 05 m coach interview in **broad Bavarian**, badly
 recorded — two speakers, a real room, no headset, no studio. Neither error rate below is what
 either tool does on clean audio, and neither is meant to be. Strong regional accent over poor
@@ -546,12 +556,21 @@ but which setting you should actually leave the slider on.
 | repeat runs ≥ 3 | **0** | 5 | 0 | 5 | 1 |
 | `" -"` spacing bug | **0** | 28 | 33 | 28 | 0 |
 | run-on unpunctuated blocks | 18 | 3 | **2** | 5 | 1 |
-| runtime | n/a | **2 m 14 s** (29.5×) | 31 m 00 s (2.1×) | 9 m 09 s (7.5×) | — |
+| runtime | n/a | not timed ¹ | 31 m 00 s (2.1×) ² | 9 m 09 s (7.5×) | — |
 
-**The recommended setting is also the best one.** The ★ rung — three voted passes — scores 21.9 %
-in 2 m 14 s. The 1× rung spends 31 minutes, fourteen times as long, to land 0.2 pp *behind* it.
-That is the ladder's own conclusion arrived at from the other direction, on a recording it was
-not tuned on.
+¹ This run printed 2 m 14 s (29.5×), but it reused all three decode passes from the cache of the
+1× run, so that figure timed the cache, not the transcription. Sinribe now refuses to print a
+speed when any pass came from the cache. The ladder measures this rung at 11× realtime, about
+6 minutes for this file.
+
+² Measured before the 2026-08-07 fix described under [the quality slider](#what-the-quality-slider-is-and-what-it-is-not):
+some of this run's nine passes were copies of the first, so it shows the old, broken 1× rung, not
+the current one.
+
+**The recommended setting is the one to use.** The ★ rung, three voted passes, scores 21.9 %
+at about 11× realtime. The 1× run above spent 31 minutes, roughly five times as long, to land
+0.2 pp *behind* it, but because of the duplicate passes that comparison says nothing yet about
+what the fixed 1× rung can do.
 
 **Where Vibe is genuinely better.** It deletes fewer words (390 against 432), and its text is
 cleaner: 1.4 duplicated words per thousand against 4.1, no repeated runs of three or more against
