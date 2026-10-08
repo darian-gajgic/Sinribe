@@ -17,6 +17,19 @@ from typing import Callable
 
 SAMPLE_RATE = 16_000
 
+# Optional conditioning applied while decoding to the canonical WAV. Whisper was trained on
+# messy audio and generally prefers to be left alone, so none of this is on by default — these
+# exist to be measured against "" by sinribe.eval, and only ship on a rung where they won.
+#
+#   clean    rumble removal plus slow level equalisation, for a recording made across a room
+#            where one voice is much further from the microphone than the other.
+#   denoise  the same, plus FFT noise reduction, for continuous background noise (fan, traffic).
+FILTER_CHAINS = {
+    "": "",
+    "clean": "highpass=f=70,dynaudnorm=f=200:g=11:p=0.95:m=8",
+    "denoise": "highpass=f=70,afftdn=nr=12:nf=-40,dynaudnorm=f=200:g=11:p=0.95:m=8",
+}
+
 AUDIO_SUFFIXES = {
     ".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".oga", ".opus", ".wma", ".aiff", ".aif",
     ".mp4", ".mkv", ".mov", ".webm", ".avi", ".m4b", ".amr", ".3gp", ".ts", ".mpg", ".mpeg",
@@ -105,21 +118,28 @@ def decode_to_wav(
     duration: float,
     on_progress: Callable[[float], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
+    filter_chain: str = "",
 ) -> Path:
     """Decode any input to 16 kHz mono s16le WAV, reporting fractional progress 0.0-1.0.
 
     Progress comes from ffmpeg's `-progress pipe:1` machine-readable stream (out_time_us),
     which is exact rather than scraped from the human stderr log.
+
+    `filter_chain` names an entry in FILTER_CHAINS; the default leaves the audio untouched.
     """
     src, dest = Path(src), Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".part")
+
+    if filter_chain not in FILTER_CHAINS:
+        raise AudioError(f"unknown audio filter {filter_chain!r}")
 
     cmd = [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
         "-i", str(src),
         "-map", "0:a:0",
         "-vn", "-sn", "-dn",
+        *(("-af", FILTER_CHAINS[filter_chain]) if FILTER_CHAINS[filter_chain] else ()),
         "-ac", "1", "-ar", str(SAMPLE_RATE),
         "-c:a", "pcm_s16le",
         # Explicit muxer: the temp file ends in ".part", so ffmpeg cannot infer the format

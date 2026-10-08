@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Score a transcript against a reference, or sweep decode settings against one.
+#
+#   ./sinribe-eval REFERENCE.docx OUTPUT.md
+#   ./sinribe-eval --sweep variants.json AUDIO.wav REFERENCE.docx -o results.json
+#
+# Same CUDA loader shim as sinribe-run — a sweep re-decodes the audio, so it needs the real
+# runtime, not just the scoring code. See that script for why the shim is mandatory.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+VENV="$HERE/.venv"
+
+if [[ ! -x "$VENV/bin/python" ]]; then
+  echo "Sinribe: no virtualenv at $VENV — run $HERE/install.sh first" >&2
+  exit 1
+fi
+
+SP="$VENV/lib/python3.12/site-packages"
+export LD_LIBRARY_PATH="$SP/nvidia/cublas/lib:$SP/nvidia/cudnn/lib:${LD_LIBRARY_PATH:-}"
+export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
+export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
+
+cd "$HERE"
+exec "$VENV/bin/python" -m sinribe.eval "$@"
