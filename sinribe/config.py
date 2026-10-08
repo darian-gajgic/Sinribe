@@ -1,6 +1,6 @@
 """Settings persistence for Sinribe.
 
-Whitelist-filtered load + atomic write, ported from /home/sinep/Sinlate/config.py so the two
+Whitelist-filtered load + atomic write, ported from Sinlate/config.py so the two
 tools behave identically: unknown keys in the on-disk file are dropped, a corrupt file degrades
 to defaults with a warning instead of crashing, and writes go through a temp file + os.replace.
 """

@@ -4,7 +4,7 @@
 #   uv pip install --python .venv/bin/python -r requirements-asr.txt
 #
 # The faster-whisper / ctranslate2 / nvidia-* pins are copied verbatim from
-# /home/sinep/local-wisprflow/requirements-lock.txt. That exact combination is empirically
+# local-wisprflow/requirements-lock.txt. That exact combination is empirically
 # proven to run on this machine's RTX 5070 Ti Laptop (sm_120 / Blackwell). Do not "upgrade"
 # them casually -- there is no system CUDA toolkit here, so the pip wheels ARE the runtime.
 
