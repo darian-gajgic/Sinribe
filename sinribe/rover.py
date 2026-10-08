@@ -43,21 +43,15 @@ def _key(word: str) -> str:
     return _PUNCT.sub("", text).strip()
 
 
-def combine(passes: list[list[Word]]) -> list[Word]:
-    """Merge decodes into one word list. `passes[0]` is the pivot and supplies the timings.
+def _ballots(passes: list[list[Word]]) -> list[list[tuple[str, str, float]]]:
+    """One ballot box per pivot position: (comparison key, original text, weight).
 
-    Returns the pivot's words with text replaced wherever the other passes outvote it, and
-    positions removed where the majority says nothing was said.
+    Split out so `agreement` can count the votes `combine` actually cast, rather than trying to
+    infer them from the merged output — which does not line up with the pivot position for
+    position, because a position the passes vote away is dropped from it.
     """
-    passes = [p for p in passes if p]
-    if not passes:
-        return []
-    if len(passes) == 1:
-        return list(passes[0])
-
     pivot = passes[0]
     pivot_keys = [_key(w.word) for w in pivot]
-    # One ballot box per pivot position: (comparison key, original text, weight).
     ballots: list[list[tuple[str, str, float]]] = [
         [(pivot_keys[i], w.word, max(w.prob, 0.01))] for i, w in enumerate(pivot)
     ]
@@ -82,7 +76,23 @@ def combine(passes: list[list[Word]]) -> list[Word]:
                     ballots[k].append(("", "", DELETION_WEIGHT))
             # Insertions are dropped: a word only one pass heard, in a place no other pass put
             # anything, is far more often a hallucination than a rescue.
+    return ballots
 
+
+def combine(passes: list[list[Word]]) -> list[Word]:
+    """Merge decodes into one word list. `passes[0]` is the pivot and supplies the timings.
+
+    Returns the pivot's words with text replaced wherever the other passes outvote it, and
+    positions removed where the majority says nothing was said.
+    """
+    passes = [p for p in passes if p]
+    if not passes:
+        return []
+    if len(passes) == 1:
+        return list(passes[0])
+
+    pivot = passes[0]
+    ballots = _ballots(passes)
     out: list[Word] = []
     for i, cell in enumerate(ballots):
         tally: Counter = Counter()
@@ -107,13 +117,18 @@ def agreement(passes: list[list[Word]]) -> float:
 
     Low agreement means the passes are genuinely diverse and voting has something to work with;
     high agreement means the extra passes are costing time and changing nothing.
+
+    Counted from the ballots. The earlier version compared the merged transcript against the
+    pivot by index, which silently measured something else: `combine` drops the positions the
+    passes vote away, so every position after the first drop was compared against its neighbour.
+    Three passes that really agreed on 85 % of words reported 2 %, and 2 % is exactly what a
+    reader would take as evidence the voting was broken.
     """
     passes = [p for p in passes if p]
     if len(passes) < 2:
         return 1.0
-    merged = combine(passes)
-    pivot = passes[0]
-    if not pivot:
+    ballots = _ballots(passes)
+    if not ballots:
         return 1.0
-    same = sum(1 for a, b in zip(merged, pivot, strict=False) if _key(a.word) == _key(b.word))
-    return same / len(pivot)
+    unanimous = sum(1 for cell in ballots if len({key for key, _, _ in cell}) == 1)
+    return unanimous / len(ballots)
