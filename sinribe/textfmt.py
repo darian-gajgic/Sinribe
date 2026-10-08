@@ -1,6 +1,6 @@
 """Deterministic text formatting helpers — no LLM involved.
 
-`format_sentences` is a port of format_notes() from /home/sinep/local-wisprflow/wf_daemon.py:244,
+`format_sentences` is a port of format_notes() from local-wisprflow/wf_daemon.py:244,
 including its curated EN+DE abbreviation set. Whisper large-v3 already punctuates well, so
 splitting on punctuation gives one sentence per line, which is what the transcript body wants.
 """

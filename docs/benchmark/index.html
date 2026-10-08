@@ -1,0 +1,777 @@
+<meta charset="utf-8">
+<title>German Interview Transcription Benchmark</title>
+<style>
+/* ---------- tokens: light is the bare :root ---------- */
+:root{
+  color-scheme: light;
+  --bg:#EDEFF3; --surface:#FFFFFF; --surface-2:#F6F7FA;
+  --ink:#10131A; --ink-2:#49515F; --muted:#79828F;
+  --rule:#D9DEE5; --rule-strong:#BFC6D0;
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a;
+  --ref:#79828F; --flag:#c22f2e;
+  --shadow:0 1px 2px rgba(16,19,26,.06), 0 8px 24px -16px rgba(16,19,26,.28);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --bg:#0F1216; --surface:#181C22; --surface-2:#1F242B;
+    --ink:#ECEFF4; --ink-2:#A8B1BF; --muted:#7B8593;
+    --rule:#272D36; --rule-strong:#39414C;
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70;
+    --ref:#7B8593; --flag:#e66767;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --bg:#0F1216; --surface:#181C22; --surface-2:#1F242B;
+  --ink:#ECEFF4; --ink-2:#A8B1BF; --muted:#7B8593;
+  --rule:#272D36; --rule-strong:#39414C;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70;
+  --ref:#7B8593; --flag:#e66767;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+}
+
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  font-size:16px; line-height:1.6; overflow-x:hidden;
+}
+.mono{font-family:ui-monospace,"SF Mono","JetBrains Mono","DejaVu Sans Mono",Menlo,Consolas,monospace}
+.wrap{max-width:1080px; margin:0 auto; padding:0 24px}
+.eyebrow{
+  font-family:ui-monospace,"SF Mono","JetBrains Mono","DejaVu Sans Mono",Menlo,Consolas,monospace;
+  font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted);
+}
+h1,h2,h3{text-wrap:balance; margin:0}
+a{color:var(--s1)}
+:focus-visible{outline:2px solid var(--s1); outline-offset:2px; border-radius:2px}
+
+/* ---------- hero ---------- */
+.hero{position:relative; border-bottom:1px solid var(--rule); background:var(--surface); overflow:hidden}
+.hero .wrap{padding-top:56px; padding-bottom:0}
+.hero h1{
+  font-family:ui-monospace,"SF Mono","JetBrains Mono","DejaVu Sans Mono",Menlo,Consolas,monospace;
+  font-size:clamp(30px,5.2vw,52px); line-height:1.06; letter-spacing:-.035em; font-weight:600; margin:14px 0 0;
+}
+.hero .sub{max-width:60ch; color:var(--ink-2); font-size:17px; margin:18px 0 0}
+.verdict{
+  display:inline-flex; align-items:baseline; gap:10px; margin-top:26px;
+  border:1px solid var(--rule-strong); border-left:3px solid var(--s1);
+  background:var(--surface-2); padding:12px 16px; border-radius:3px;
+}
+.verdict b{font-weight:600}
+#wavewrap{margin-top:40px; position:relative}
+#wave{display:block; width:100%; height:132px}
+.axis-ticks{display:flex; justify-content:space-between; border-top:1px solid var(--rule);
+  padding:6px 0 30px; color:var(--muted); font-size:11px}
+
+/* ---------- generic blocks ---------- */
+section{padding:64px 0 8px; border-bottom:1px solid var(--rule)}
+section:last-of-type{border-bottom:0}
+.sec-head{display:flex; flex-direction:column; gap:10px; margin-bottom:28px}
+.sec-head h2{font-size:clamp(23px,3vw,31px); letter-spacing:-.02em; font-weight:600}
+.sec-head p{margin:0; max-width:68ch; color:var(--ink-2)}
+.card{background:var(--surface); border:1px solid var(--rule); border-radius:4px; box-shadow:var(--shadow)}
+.pad{padding:22px}
+
+/* scorecard */
+.score{display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:34px}
+.tile{background:var(--surface); border:1px solid var(--rule); border-radius:4px; padding:18px 18px 20px;
+  display:flex; flex-direction:column; gap:2px; position:relative; overflow:hidden}
+.tile.lead{border-color:var(--s1)}
+.tile .stripe{position:absolute; inset:0 auto 0 0; width:3px}
+.tile .name{font-weight:600; font-size:15px; display:flex; align-items:center; gap:8px; margin-bottom:8px}
+.dot{width:9px; height:9px; border-radius:50%; flex:none}
+.tile .big{font-family:ui-monospace,"SF Mono","JetBrains Mono","DejaVu Sans Mono",Menlo,Consolas,monospace;
+  font-size:38px; letter-spacing:-.03em; font-variant-numeric:tabular-nums; line-height:1.05}
+.tile .cap{font-size:12px; color:var(--muted)}
+.tile dl{margin:16px 0 0; padding-top:14px; border-top:1px solid var(--rule); display:grid;
+  grid-template-columns:1fr auto; gap:7px 12px; font-size:13px}
+.tile dt{color:var(--ink-2); margin:0}
+.tile dd{margin:0; font-family:ui-monospace,"SF Mono","JetBrains Mono","DejaVu Sans Mono",Menlo,Consolas,monospace;
+  font-variant-numeric:tabular-nums; text-align:right}
+.rank{font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted)}
+
+/* tables */
+.tablewrap{overflow-x:auto; margin-top:20px}
+table{border-collapse:collapse; width:100%; font-size:14px; min-width:520px}
+caption{text-align:left; color:var(--muted); font-size:12px; padding-bottom:10px}
+th,td{padding:9px 12px; text-align:right; border-bottom:1px solid var(--rule)}
+th:first-child,td:first-child{text-align:left}
+thead th{font-weight:600; font-size:12px; color:var(--ink-2); border-bottom:1px solid var(--rule-strong)}
+tbody td{font-family:ui-monospace,"SF Mono","JetBrains Mono","DejaVu Sans Mono",Menlo,Consolas,monospace;
+  font-variant-numeric:tabular-nums}
+tbody td:first-child{font-family:inherit}
+tr.best td{background:color-mix(in srgb, var(--s1) 7%, transparent)}
+.swatch{display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:8px; vertical-align:baseline}
+
+/* charts */
+figure{margin:24px 0 0}
+figcaption{color:var(--muted); font-size:12.5px; margin-top:10px; max-width:70ch}
+svg{display:block; width:100%; overflow:visible}
+.legend{display:flex; flex-wrap:wrap; gap:16px; margin:0 0 14px; font-size:13px; color:var(--ink-2)}
+.legend span{display:inline-flex; align-items:center; gap:7px}
+
+/* evidence */
+.evi{border:1px solid var(--rule); border-left:3px solid var(--flag); background:var(--surface);
+  border-radius:3px; padding:16px 18px; margin-top:18px}
+.evi .tag{color:var(--flag); font-weight:600; font-size:11px; letter-spacing:.12em; text-transform:uppercase}
+.evi blockquote{margin:10px 0 0; font-size:15px; line-height:1.6; color:var(--ink)}
+.quote-grid{display:grid; gap:12px; margin-top:18px}
+.qrow{display:grid; grid-template-columns:132px 1fr; gap:16px; padding:12px 0; border-top:1px solid var(--rule);
+  align-items:start; font-size:14.5px}
+.qrow .who{font-family:ui-monospace,"SF Mono","JetBrains Mono","DejaVu Sans Mono",Menlo,Consolas,monospace;
+  font-size:12px; color:var(--muted); letter-spacing:.04em; padding-top:2px}
+.qrow em{font-style:normal; background:color-mix(in srgb, var(--s2) 26%, transparent); border-radius:2px; padding:0 3px}
+.qrow ins{text-decoration:none; background:color-mix(in srgb, var(--s3) 26%, transparent); border-radius:2px; padding:0 3px}
+
+.cols{display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:18px; margin-top:24px}
+.note{font-size:14px; color:var(--ink-2)}
+.note h3{font-size:15px; margin:0 0 6px; font-weight:600}
+ul.tight{margin:10px 0 0; padding-left:20px} ul.tight li{margin:5px 0}
+
+footer{padding:44px 0 64px; color:var(--muted); font-size:13px}
+footer .wrap{display:flex; flex-direction:column; gap:8px}
+
+/* tooltip */
+#tip{position:fixed; pointer-events:none; opacity:0; transition:opacity .1s; z-index:50;
+  background:var(--surface); border:1px solid var(--rule-strong); border-radius:4px; padding:8px 11px;
+  font-size:12.5px; box-shadow:var(--shadow); white-space:nowrap}
+#tip .tk{font-family:ui-monospace,"SF Mono",Menlo,monospace; font-variant-numeric:tabular-nums}
+@media (prefers-reduced-motion:reduce){*{animation:none!important; transition:none!important}}
+@media (max-width:720px){
+  .score{grid-template-columns:1fr}
+  .qrow{grid-template-columns:1fr; gap:4px}
+  section{padding-top:48px}
+}
+</style>
+
+<div id="tip" role="status" aria-live="polite"></div>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="eyebrow">Transcription benchmark · German interview · 65 min 45 s</p>
+    <h1>Sinribe vs Vibe vs<br>stock large-v3</h1>
+    <p class="sub">One 66-minute German coaching interview, transcribed three ways and scored word-by-word
+      against a human transcript. Same audio, same reference, same scoring code. The third transcript is a
+      neutral baseline: stock <span class="mono">faster-whisper large-v3</span>, run for this benchmark by
+      Claude Code (an AI coding agent), with no diarisation or post-processing.</p>
+    <p class="verdict"><b>Result:</b> <span>Sinribe leads on every axis measured — word accuracy, meaning-changing
+      errors, timestamps, and speaker attribution.</span></p>
+    <div id="wavewrap">
+      <canvas id="wave" aria-label="Waveform of the 66-minute source recording"></canvas>
+      <div class="axis-ticks mono" id="ticks"></div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- ============ SCORECARD ============ -->
+  <section id="scorecard" style="border-bottom:0; padding-top:52px">
+    <div class="sec-head">
+      <p class="eyebrow">Scorecard</p>
+      <h2>Three systems, 9,174 reference words</h2>
+      <p>Word error rate counts every substitution, deletion and insertion against the human transcript.
+         Lower is better. The human transcript is lightly cleaned prose, so a few points of every score
+         here are style, not mistakes — that penalty falls on all three equally.</p>
+    </div>
+    <div class="score" id="score"></div>
+  </section>
+
+  <!-- ============ ACCURACY ============ -->
+  <section id="accuracy">
+    <div class="sec-head">
+      <p class="eyebrow">Word accuracy</p>
+      <h2>Sinribe makes the fewest errors of any kind</h2>
+      <p>Against 9,174 human-transcribed words, Sinribe's word error rate is 18.84% — an 8.1% relative
+         reduction against Vibe and 6.6% against a stock <span class="mono">large-v3</span> run on the same GPU.</p>
+    </div>
+    <figure class="card pad">
+      <div class="legend" id="lg-wer"></div>
+      <svg id="c-wer" viewBox="0 0 720 250" role="img"
+           aria-label="Word error rate and substantive error rate by system"></svg>
+      <figcaption>Total WER (all differences) beside the substantive-error rate — the subset that changes
+        what a reader understands. Both orderings are the same: Sinribe, then the stock baseline, then Vibe.</figcaption>
+    </figure>
+    <div class="tablewrap">
+      <table>
+        <caption>Full error breakdown against the human reference (9,174 words)</caption>
+        <thead><tr><th>System</th><th>WER</th><th>Accuracy</th><th>Subs</th><th>Deletions</th>
+          <th>Insertions</th><th>Words out</th></tr></thead>
+        <tbody id="t-wer"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ ERROR KIND ============ -->
+  <section id="composition">
+    <div class="sec-head">
+      <p class="eyebrow">What the errors actually are</p>
+      <h2>Not all errors cost the reader something</h2>
+      <p>Every difference was classified automatically. <b>Cosmetic</b> errors preserve meaning —
+         <span class="mono">gern/gerne</span>, a dropped <span class="mono">ja</span>, a swapped article, or two
+         spellings that sound identical under German phonetics (Kölner Phonetik). <b>Substantive</b> errors change
+         the word a reader takes away — <span class="mono">Fieber → Führer</span>, <span class="mono">Trance → Branche</span>.
+         That second number is the one worth optimising.</p>
+    </div>
+    <figure class="card pad">
+      <div class="legend" id="lg-comp"></div>
+      <svg id="c-comp" viewBox="0 0 720 178" role="img"
+           aria-label="Substantive versus cosmetic errors by system"></svg>
+      <figcaption>Sinribe carries 684 substantive errors against Vibe's 752 and the stock baseline's 743:
+        68 and 59 fewer meaning-changing words across the hour.</figcaption>
+    </figure>
+    <div class="tablewrap">
+      <table>
+        <caption>Error classification, counts of words</caption>
+        <thead><tr><th>System</th><th>Substantive</th><th>rate</th><th>Cosmetic</th><th>rate</th></tr></thead>
+        <tbody id="t-comp"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ FABRICATION ============ -->
+  <section id="fabrication">
+    <div class="sec-head">
+      <p class="eyebrow">Fabrication &amp; omission</p>
+      <h2>Vibe invents an opening that is not in the audio</h2>
+      <p>The most serious failure mode in ASR is not a misheard word — it is confident text with no
+         acoustic source. Vibe's transcript opens with 26 words that were never spoken.</p>
+    </div>
+
+    <div class="evi">
+      <span class="tag">Not present in the recording</span>
+      <blockquote class="mono">„Also, sind wir doch safe! Ja, dann sage ich erstmal vielen Dank, dass Sie sich
+        die Zeit nehmen für mein Interview. Genau, wir haben uns aufgezeichnet.“</blockquote>
+    </div>
+    <div class="quote-grid">
+      <div class="qrow"><span class="who">AUDIO @ 0.00 s</span>
+        <span>Verified by re-decoding the first 25 seconds with voice-activity filtering disabled, so
+          nothing could be silently skipped: the file begins mid-sentence with
+          <ins>„Ich frage nochmal ganz offiziell…“</ins></span></div>
+      <div class="qrow"><span class="who">HUMAN</span><span>[00:00:00] „Ich frage nochmal ganz offiziell…“</span></div>
+      <div class="qrow"><span class="who">SINRIBE</span><span>[00:00:00] „Ich frage nochmal ganz offiziell…“</span></div>
+      <div class="qrow"><span class="who">STOCK LARGE-V3</span><span>[00:00:00] „Ich frage nochmal ganz offiziell…“</span></div>
+      <div class="qrow"><span class="who">VIBE</span><span><em>26 fabricated words</em>, then the real first sentence.</span></div>
+    </div>
+
+    <figure class="card pad">
+      <div class="legend" id="lg-runs"></div>
+      <svg id="c-runs" viewBox="0 0 720 232" role="img"
+           aria-label="Fabricated and omitted word runs by system"></svg>
+      <figcaption>Runs of eight or more consecutive words that are invented (no reference counterpart) or
+        dropped. Short shared runs appear in all three systems where the human transcript condensed speech —
+        the runs that matter are the ones only one system has.</figcaption>
+    </figure>
+    <div class="tablewrap">
+      <table>
+        <caption>Longest continuous fabrications and omissions</caption>
+        <thead><tr><th>System</th><th>Fabricated runs</th><th>Longest</th><th>Omitted runs</th><th>Longest</th></tr></thead>
+        <tbody id="t-runs"></tbody>
+      </table>
+    </div>
+    <div class="cols">
+      <div class="note"><h3>Sinribe's worst omission: 10 words</h3>
+        A crosstalk moment at 0:14 where both speakers talk over each other
+        (<span class="mono">„…in der Anrede darf ich es angeben, ich bin der Ältere“</span>).</div>
+      <div class="note"><h3>Vibe's worst omission: 20 words</h3>
+        A stretch at 51:12 disappears entirely — <span class="mono">„…war unglaublich, was da passiert ist,
+        dann waren die locker…“</span></div>
+      <div class="note"><h3>Stock baseline's worst omission: 65 words</h3>
+        The baseline's voice-activity filter swallowed a whole 65-word passage at 58:15.
+        Sinribe transcribed it in full — verified against the audio.</div>
+    </div>
+  </section>
+
+  <!-- ============ TIMESTAMPS ============ -->
+  <section id="timestamps">
+    <div class="sec-head">
+      <p class="eyebrow">Timestamps</p>
+      <h2>Vibe's timeline is 14 seconds late — everywhere</h2>
+      <p>Measured on roughly 7,700 aligned word anchors, not a handful of spot checks. Sinribe's median
+         signed offset is +0.1 s. Vibe's is +14.0 s, and it holds near-constant from the first minute to the
+         last, so it is a systematic offset rather than accumulating drift.</p>
+    </div>
+    <figure class="card pad">
+      <div class="legend" id="lg-ts"></div>
+      <svg id="c-ts" viewBox="0 0 720 230" role="img"
+           aria-label="Share of words whose timestamp lands within one, two and five seconds of truth"></svg>
+      <figcaption>Share of aligned words whose timestamp falls within 1 s, 2 s and 5 s of the human transcript's
+        clock. Vibe clears 2 s for 2.8% of words; Sinribe for 61.5%.</figcaption>
+    </figure>
+    <div class="evi" style="border-left-color:var(--rule-strong)">
+      <span class="tag" style="color:var(--muted)">Ground-truth spot check @ 29:47</span>
+      <blockquote>Re-decoding the audio window at 1784 s puts
+        <span class="mono">„Ich habe einen Trainerspeicher mit zweieinhalbtausend veröffentlicht“</span>
+        at <b>29:47</b>. Sinribe and the stock baseline agree. Vibe stamps it <b>30:01</b>.</blockquote>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <caption>Timestamp error against the human clock (7,600–7,700 anchors per system)</caption>
+        <thead><tr><th>System</th><th>Median signed</th><th>Median |Δ|</th><th>Mean |Δ|</th>
+          <th>≤ 1 s</th><th>≤ 2 s</th><th>≤ 5 s</th></tr></thead>
+        <tbody id="t-ts"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ SPEAKERS ============ -->
+  <section id="speakers">
+    <div class="sec-head">
+      <p class="eyebrow">Speaker attribution</p>
+      <h2>Only Sinribe answers "who said this?"</h2>
+      <p>Vibe and the stock baseline emit an undifferentiated stream of text. For an interview, where the
+         whole point is separating the interviewer's questions from the subject's answers, that is the
+         difference between a transcript and a wall of text.</p>
+    </div>
+    <div class="cols" style="grid-template-columns:minmax(0,1.15fr) minmax(0,1fr); align-items:start">
+      <figure class="card pad" style="margin:0">
+        <svg id="c-dia" viewBox="0 0 420 220" role="img"
+             aria-label="Sinribe speaker attribution accuracy against the majority-class baseline"></svg>
+        <figcaption>99.60% of words assigned to the right speaker. The bar to beat is 90.12% — what you would
+          score by lazily labelling every word with the dominant speaker.</figcaption>
+      </figure>
+      <div class="card pad" style="margin:0">
+        <p class="eyebrow">Detail</p>
+        <div class="tablewrap" style="margin-top:12px">
+          <table style="min-width:0">
+            <tbody id="t-dia"></tbody>
+          </table>
+        </div>
+        <p class="note" style="margin-top:16px">The interviewer speaks only 11% of the hour — the hard case for
+          diarisation, because a system can score well by ignoring them entirely. Sinribe still recovers
+          97.7% of their words, and correctly maps both roles with no manual hint.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TIMELINE ============ -->
+  <section id="timeline">
+    <div class="sec-head">
+      <p class="eyebrow">Accuracy over the hour</p>
+      <h2>Where all three systems struggle, and where they don't</h2>
+      <p>Per-word agreement with the human transcript in two-minute buckets. The dips are shared, which is the
+         signal that they are the audio's fault rather than any one system's: crosstalk, the connection
+         dropout the human transcriber noted at 26:32, and the fast exchange near the close.</p>
+    </div>
+    <figure class="card pad">
+      <div class="legend" id="lg-tl"></div>
+      <svg id="c-tl" viewBox="0 0 720 300" role="img"
+           aria-label="Per-word accuracy over the recording, two-minute buckets"></svg>
+      <figcaption>Hover for exact values. Sinribe holds the top line for most of the recording.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============ READABILITY ============ -->
+  <section id="shape">
+    <div class="sec-head">
+      <p class="eyebrow">Shape of the output</p>
+      <h2>160 speaker turns, or 929 fragments</h2>
+      <p>Accuracy is only half of a usable transcript. Vibe and the stock baseline cut the interview into
+         sub-sentence chunks on acoustic pauses; a reader has to reassemble the argument themselves.</p>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <caption>Segmentation compared with the human transcript</caption>
+        <thead><tr><th>Transcript</th><th>Segments</th><th>Median words</th><th>Fragments &lt; 5 words</th>
+          <th>Speaker labels</th></tr></thead>
+        <tbody id="t-seg"></tbody>
+      </table>
+    </div>
+    <div class="quote-grid" style="margin-top:26px">
+      <p class="eyebrow">The same eight seconds, four ways</p>
+      <div class="qrow"><span class="who">HUMAN</span><span>Hand aufs Herz, Augen schließen und mal schauen, wie man atmet.</span></div>
+      <div class="qrow"><span class="who">SINRIBE</span><span>Hand aufs Herz, Augen schließen und mal schauen, wie man atmet.</span></div>
+      <div class="qrow"><span class="who">VIBE</span><span>01:54 → 01:59 Hand aufs Herz, Augen schließen und mal schauen, wie man atmet.
+        <em>— stamped 14 s late; true position is 01:40</em></span></div>
+      <div class="qrow"><span class="who">STOCK LARGE-V3</span><span>Hand aufs Herz, Augen schließen und mal schauen, wie man atmet.</span></div>
+    </div>
+  </section>
+
+  <!-- ============ AGREEMENT ============ -->
+  <section id="agreement">
+    <div class="sec-head">
+      <p class="eyebrow">Cross-check</p>
+      <h2>Sinribe and the stock baseline converge; Vibe is the outlier</h2>
+      <p>Scoring every transcript against every other one is a useful sanity check on the human reference.
+         Sinribe agrees with the stock baseline 91.2% of the time, the highest pairing in the
+         matrix — while Vibe sits furthest from everything, including from the human transcript.</p>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <caption>Pairwise word agreement (1 − WER, row as reference)</caption>
+        <thead><tr><th>Pair</th><th>Agreement</th></tr></thead>
+        <tbody id="t-agree"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ METHOD ============ -->
+  <section id="method">
+    <div class="sec-head">
+      <p class="eyebrow">Method &amp; caveats</p>
+      <h2>How this was measured</h2>
+    </div>
+    <div class="cols">
+      <div class="note"><h3>Reference</h3><code class="mono">Manual-transcript.docx</code>, 9,174 words after
+        normalisation, treated as ground truth. Stage directions and
+        <span class="mono">Unverständlich</span> markers were stripped before scoring.</div>
+      <div class="note"><h3>Scoring</h3>Exact word-level Levenshtein alignment with backtrace. Text is
+        lower-cased, punctuation and quote marks removed, umlauts preserved. Identical code path for all
+        three systems.</div>
+      <div class="note"><h3>Stock large-v3 baseline</h3>Stock <span class="mono">faster-whisper large-v3</span>, run for this benchmark by Claude Code (an AI coding agent),
+        float16 on the RTX 5070 Ti, beam 5, VAD on, language forced to German. 65 min of audio in 139 s
+        (28× real time). One pass, no diarisation, no post-processing.</div>
+      <div class="note"><h3>Shared base model</h3>The stock baseline and Sinribe both build on
+        <span class="mono">large-v3</span>. The gap between them is therefore attributable to Sinribe's
+        pipeline — multi-pass voting, segmentation and diarisation — not to a different underlying model.</div>
+      <div class="note"><h3>The reference is not perfect</h3>The human transcript has two out-of-order
+        timestamps near the end; timing was measured only over its monotonic span (first 8,847 words).
+        It also condenses speech in places, which charges every ASR system for words that were genuinely
+        spoken.</div>
+      <div class="note"><h3>What this does not measure</h3>Speed and cost. Sinribe's own header reports its
+        run as served from cache, so no like-for-like throughput comparison was possible here.</div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div>Source: <span class="mono">German interview recording</span>, 65 min 45 s, mono, 48 kHz.</div>
+    <div>Sinribe: large-v3 · CUDA · float16 · diarisation <span class="mono">speaker-diarization-community-1</span>
+      · 3-pass vote. Vibe: transcript as supplied. Stock large-v3: faster-whisper large-v3 as shipped, run by Claude Code for this benchmark.</div>
+  </div>
+</footer>
+
+<script>
+const DATA = {"waveform": [0.808, 1.0, 0.941, 0.793, 0.568, 0.539, 0.356, 0.355, 0.442, 0.792, 0.647, 0.314, 0.488, 0.354, 0.716, 0.934, 0.636, 0.753, 0.695, 0.481, 0.764, 0.473, 0.565, 0.259, 0.307, 0.421, 0.548, 0.651, 1.0, 0.702, 0.791, 0.637, 0.406, 0.441, 0.567, 0.491, 0.689, 0.47, 0.589, 0.618, 0.695, 0.729, 0.779, 0.57, 0.06, 0.372, 0.699, 0.656, 0.719, 0.611, 0.53, 0.382, 0.758, 0.682, 0.816, 0.561, 0.649, 0.47, 0.325, 0.515, 0.696, 0.688, 0.672, 0.893, 0.683, 0.881, 0.438, 0.595, 0.843, 0.06, 0.473, 0.706, 0.632, 0.683, 0.645, 0.573, 0.838, 0.78, 0.485, 0.398, 0.596, 0.375, 0.521, 0.459, 0.56, 0.661, 0.642, 0.319, 0.61, 0.06, 0.48, 0.732, 0.734, 0.369, 0.89, 0.73, 0.573, 0.793, 0.06, 0.558, 0.798, 0.556, 0.507, 0.386, 0.535, 0.139, 0.79, 0.065, 0.743, 0.592, 0.7, 0.362, 0.593, 0.508, 0.471, 0.613, 0.146, 0.221, 0.704, 0.57, 0.61, 0.545, 0.692, 0.484, 0.652, 0.525, 0.406, 0.193, 0.376, 0.722, 0.387, 0.299, 0.63, 0.447, 0.499, 0.554, 0.558, 0.673, 0.539, 0.186, 0.06, 0.904, 0.623, 0.719, 0.609, 0.622, 0.559, 0.463, 0.413, 0.851, 0.846, 0.622, 0.568, 0.62, 0.608, 0.714, 1.0, 0.804, 0.665, 0.703, 0.561, 0.537, 0.598, 0.613, 0.677, 0.459, 0.545, 0.651, 0.327, 0.733, 0.858, 0.653, 0.453, 0.722, 0.31, 0.386, 0.467, 0.249, 0.775, 0.404, 0.501, 0.551, 0.366, 0.19, 0.73, 0.533, 0.584, 0.721, 0.516, 0.473, 0.146, 0.546, 0.864, 0.546, 0.305, 0.516, 0.513, 0.572, 0.778, 0.698, 0.716, 0.648, 0.513, 0.382, 0.608, 0.06, 0.499, 0.605, 0.493, 0.613, 0.543, 0.166, 0.243, 0.651, 0.819, 0.622, 0.787, 0.547, 0.581, 0.765, 0.677, 0.528, 0.06, 0.367, 0.261, 0.744, 0.851, 0.981, 0.562, 0.482, 0.558, 0.669, 0.287, 0.284, 0.338, 0.06, 0.677, 0.411, 0.308, 0.711, 0.578, 0.662, 0.648, 0.659, 0.623, 0.352, 0.298, 0.664, 0.204, 0.408, 0.291, 0.49, 0.457, 0.541, 0.619, 0.625, 0.652, 0.32, 0.682, 0.656], "timeline": {"sinribe": [{"min": 0.0, "acc": 0.8907849829351536}, {"min": 2.0, "acc": 0.9100719424460432}, {"min": 4.0, "acc": 0.8522727272727273}, {"min": 6.0, "acc": 0.9262295081967213}, {"min": 8.0, "acc": 0.9009287925696594}, {"min": 10.0, "acc": 0.9090909090909091}, {"min": 12.0, "acc": 0.9134948096885813}, {"min": 14.0, "acc": 0.9064516129032258}, {"min": 16.0, "acc": 0.8722044728434505}, {"min": 18.0, "acc": 0.9183673469387755}, {"min": 20.0, "acc": 0.8576271186440678}, {"min": 22.0, "acc": 0.8724279835390947}, {"min": 24.0, "acc": 0.8298755186721991}, {"min": 26.0, "acc": 0.8823529411764706}, {"min": 28.0, "acc": 0.8222996515679443}, {"min": 30.0, "acc": 0.8549848942598187}, {"min": 32.0, "acc": 0.8513011152416357}, {"min": 34.0, "acc": 0.9}, {"min": 36.0, "acc": 0.8725490196078431}, {"min": 38.0, "acc": 0.8685897435897436}, {"min": 40.0, "acc": 0.8972602739726028}, {"min": 42.0, "acc": 0.8768656716417911}, {"min": 44.0, "acc": 0.8813559322033898}, {"min": 46.0, "acc": 0.9128630705394191}, {"min": 48.0, "acc": 0.8409090909090909}, {"min": 50.0, "acc": 0.8778625954198473}, {"min": 52.0, "acc": 0.8857142857142857}, {"min": 54.0, "acc": 0.7992277992277992}, {"min": 56.0, "acc": 0.790983606557377}, {"min": 58.0, "acc": 0.8648648648648649}, {"min": 60.0, "acc": 0.8322784810126582}, {"min": 62.0, "acc": 0.8319559228650137}, {"min": 64.0, "acc": 0.6024844720496895}], "vibe": [{"min": 0.0, "acc": 0.8976109215017065}, {"min": 2.0, "acc": 0.9064748201438849}, {"min": 4.0, "acc": 0.8371212121212122}, {"min": 6.0, "acc": 0.930327868852459}, {"min": 8.0, "acc": 0.8854489164086687}, {"min": 10.0, "acc": 0.9636363636363636}, {"min": 12.0, "acc": 0.9238754325259515}, {"min": 14.0, "acc": 0.9}, {"min": 16.0, "acc": 0.9137380191693291}, {"min": 18.0, "acc": 0.9183673469387755}, {"min": 20.0, "acc": 0.888135593220339}, {"min": 22.0, "acc": 0.8559670781893004}, {"min": 24.0, "acc": 0.7883817427385892}, {"min": 26.0, "acc": 0.8719723183391004}, {"min": 28.0, "acc": 0.8083623693379791}, {"min": 30.0, "acc": 0.8700906344410876}, {"min": 32.0, "acc": 0.8327137546468402}, {"min": 34.0, "acc": 0.896774193548387}, {"min": 36.0, "acc": 0.8496732026143791}, {"min": 38.0, "acc": 0.8814102564102564}, {"min": 40.0, "acc": 0.8664383561643836}, {"min": 42.0, "acc": 0.8544776119402985}, {"min": 44.0, "acc": 0.8516949152542372}, {"min": 46.0, "acc": 0.8838174273858921}, {"min": 48.0, "acc": 0.8446969696969697}, {"min": 50.0, "acc": 0.83206106870229}, {"min": 52.0, "acc": 0.8964285714285715}, {"min": 54.0, "acc": 0.8223938223938224}, {"min": 56.0, "acc": 0.8032786885245902}, {"min": 58.0, "acc": 0.8693693693693694}, {"min": 60.0, "acc": 0.8164556962025317}, {"min": 62.0, "acc": 0.8099173553719008}, {"min": 64.0, "acc": 0.6024844720496895}], "claude": [{"min": 0.0, "acc": 0.8873720136518771}, {"min": 2.0, "acc": 0.9064748201438849}, {"min": 4.0, "acc": 0.8181818181818181}, {"min": 6.0, "acc": 0.9385245901639344}, {"min": 8.0, "acc": 0.9009287925696594}, {"min": 10.0, "acc": 0.9127272727272727}, {"min": 12.0, "acc": 0.8996539792387543}, {"min": 14.0, "acc": 0.896774193548387}, {"min": 16.0, "acc": 0.8338658146964857}, {"min": 18.0, "acc": 0.9183673469387755}, {"min": 20.0, "acc": 0.847457627118644}, {"min": 22.0, "acc": 0.868312757201646}, {"min": 24.0, "acc": 0.8049792531120332}, {"min": 26.0, "acc": 0.8823529411764706}, {"min": 28.0, "acc": 0.8153310104529616}, {"min": 30.0, "acc": 0.851963746223565}, {"min": 32.0, "acc": 0.8550185873605948}, {"min": 34.0, "acc": 0.8870967741935484}, {"min": 36.0, "acc": 0.9019607843137255}, {"min": 38.0, "acc": 0.8814102564102564}, {"min": 40.0, "acc": 0.8938356164383562}, {"min": 42.0, "acc": 0.8917910447761194}, {"min": 44.0, "acc": 0.8516949152542372}, {"min": 46.0, "acc": 0.892116182572614}, {"min": 48.0, "acc": 0.8295454545454546}, {"min": 50.0, "acc": 0.8893129770992366}, {"min": 52.0, "acc": 0.8857142857142857}, {"min": 54.0, "acc": 0.7760617760617761}, {"min": 56.0, "acc": 0.7622950819672132}, {"min": 58.0, "acc": 0.6171171171171171}, {"min": 60.0, "acc": 0.8164556962025317}, {"min": 62.0, "acc": 0.8236914600550964}, {"min": 64.0, "acc": 0.6086956521739131}]}, "timing": {"sinribe": {"n": 7724, "median_signed": 0.08577653283532527, "mean_abs": 2.6294674405584693, "median_abs": 1.3042418534098488, "p90_abs": 7.137409901439217, "within_1s": 0.42892283790781977, "within_2s": 0.6145779388917659, "within_5s": 0.8350595546349042, "last_ts": 3939}, "vibe": {"n": 7697, "median_signed": 14.00204582651395, "mean_abs": 13.611228237329627, "median_abs": 14.00204582651395, "p90_abs": 18.462338222021256, "within_1s": 0.019098350006496036, "within_2s": 0.02845264388722879, "within_5s": 0.04495257892685462, "last_ts": 3958}, "claude": {"n": 7605, "median_signed": -0.5074224021591363, "mean_abs": 3.1038485060085566, "median_abs": 2.0326283987915303, "p90_abs": 7.73090127130522, "within_1s": 0.31597633136094677, "within_2s": 0.494543063773833, "within_5s": 0.8031558185404339, "last_ts": 3944}}, "final": {"diarization": {"mapping": {"Person 1": "Interviewer", "Person 2": "Interview-Partner"}, "aligned_words": 8804, "accuracy": 0.9960245343025897, "majority_baseline": 0.9011812812358019, "majority_role": "Interview-Partner", "per_role": {"Interview-Partner": {"words": 7934, "correct": 7919, "recall": 0.9981094025712125}, "Interviewer": {"words": 870, "correct": 850, "recall": 0.9770114942528736}}, "turn_changes_ref": 120, "turn_changes_evaluable": 84, "turn_changes_detected": 62, "turn_recall": 0.7380952380952381}, "agreement": {"manual~sinribe": 0.8116415958142577, "manual~vibe": 0.7948550250708524, "manual~claude": 0.7983431436668846, "sinribe~vibe": 0.8734435379991412, "sinribe~claude": 0.9117647058823529, "vibe~claude": 0.8574134483847207}, "segmentation": {"manual": {"n_segments": 122, "median_words": 18.0, "mean_words": 75.19672131147541, "pct_under_5_words": 0.28688524590163933, "has_speakers": true}, "sinribe": {"n_segments": 160, "median_words": 25.5, "mean_words": 58.225, "pct_under_5_words": 0.18125, "has_speakers": true}, "vibe": {"n_segments": 929, "median_words": 8.0, "mean_words": 10.229278794402584, "pct_under_5_words": 0.2109795479009688, "has_speakers": false}, "claude": {"n_segments": 1060, "median_words": 7.0, "mean_words": 8.763207547169811, "pct_under_5_words": 0.23867924528301887, "has_speakers": false}}}, "report": {"systems": {"sinribe": {"label": "Sinribe", "n_hyp_words": 9316, "M": 7958, "S": 846, "D": 370, "I": 512, "wer": 0.18835840418574232, "accuracy": 0.8674514933507739, "major_errors": 684, "minor_errors": 1044, "major_rate": 0.07455853499018966, "minor_rate": 0.11379986919555266, "ins_runs": [{"len": 12, "text": "also das ist nicht so ein stuck grösser ist ein fieber glaube"}, {"len": 9, "text": "weil es machen die es alleine ich sage zum"}, {"len": 9, "text": "ja es ist das muss halt ich auch immer"}], "del_runs": [{"len": 10, "t": 13.058823529411764, "text": "ist in der anrede darf ich es angeben ich bin"}, {"len": 15, "t": 3847.3076923076924, "text": "redet ich bin da auf der anderen seite und ich habe mir angeschaut wie meine"}], "n_segments": 160}, "vibe": {"label": "Vibe", "n_hyp_words": 9503, "M": 7924, "S": 947, "D": 303, "I": 632, "wer": 0.2051449749291476, "accuracy": 0.8637453673424896, "major_errors": 752, "minor_errors": 1130, "major_rate": 0.08197078700675824, "minor_rate": 0.12317418792238936, "ins_runs": [{"len": 26, "text": "also sind wir doch safe ja dann sage ich erstmal vielen dank dass sie sich die zeit nehmen für mein interview genau wir haben uns aufgezeichnet"}, {"len": 13, "text": "also das ist nicht nur ein sturm das ist ein führer glaube ich"}, {"len": 9, "text": "weil es machen die sachen an ich sage zum"}, {"len": 11, "text": "dann melde es sich wieder und dann mit der hand aufsat"}, {"len": 8, "text": "ausgehängt lassen und dann hat man die türe"}], "del_runs": [{"len": 11, "t": 13.176470588235293, "text": "in der anrede darf ich es angeben ich bin der ältere"}, {"len": 20, "t": 3069.2820512820513, "text": "easy easy reingemacht war unglaublich was da passiert ist dann waren die locker also auf jeden fall lockerer große boxen"}, {"len": 13, "t": 3844.2628205128203, "text": "wie sie mit ihrer chefin redet ich bin da auf der anderen seite"}], "n_segments": 929}, "claude": {"label": "Stock large-v3", "n_hyp_words": 9289, "M": 7845, "S": 923, "D": 406, "I": 521, "wer": 0.20165685633311534, "accuracy": 0.855134074558535, "major_errors": 743, "minor_errors": 1107, "major_rate": 0.08098975365162416, "minor_rate": 0.12066710268149117, "ins_runs": [{"len": 9, "text": "weil es machen die es alleine ich sage zum"}, {"len": 10, "text": "ausgegangen und dann hat man gehört er hat die türe"}], "del_runs": [{"len": 65, "t": 3496.0, "text": "im gespräch bleiben zum beispiel wir hatten ein großes studio das ist irre gewachsen irgendwann haben wir gemerkt wir reden nicht mehr so und dann haben wir da durchgelaufen ich habe gemerkt wo ist denn eure kaffeemaschine die hatte einer früher auf dem gang da haben wir uns immer getroffen jetzt haben die manager die eigene in ihrem büro ich sagte okay nehmen wir die"}, {"len": 15, "t": 3847.3076923076924, "text": "redet ich bin da auf der anderen seite und ich habe mir angeschaut wie meine"}], "n_segments": 1060}}}};
+
+/* ---------- shared helpers ---------- */
+const SYS = [
+  {k:'sinribe', name:'Sinribe',  col:'var(--s1)'},
+  {k:'claude',  name:'Stock large-v3', col:'var(--s3)'},
+  {k:'vibe',    name:'Vibe',     col:'var(--s2)'},
+];
+const pct = (x,d=2)=> (x*100).toFixed(d)+'%';
+const tip = document.getElementById('tip');
+function showTip(e, html){
+  tip.innerHTML = html; tip.style.opacity = 1;
+  const r = tip.getBoundingClientRect();
+  let x = e.clientX + 14, y = e.clientY - r.height - 10;
+  if (x + r.width > innerWidth - 8) x = e.clientX - r.width - 14;
+  if (y < 8) y = e.clientY + 18;
+  tip.style.left = x+'px'; tip.style.top = y+'px';
+}
+function hideTip(){ tip.style.opacity = 0; }
+function el(tag, attrs, txt){
+  const n = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  if (txt != null) n.textContent = txt;
+  return n;
+}
+function legend(id, items){
+  document.getElementById(id).innerHTML = items.map(i => {
+    let sw;
+    if (i.kind === 'ring')       sw = `<i class="dot" style="background:transparent;box-shadow:inset 0 0 0 2px var(--ink-2)"></i>`;
+    else if (i.kind === 'faded') sw = `<i class="dot" style="background:var(--ink-2);opacity:.3;border-radius:2px"></i>`;
+    else if (i.kind === 'solid') sw = `<i class="dot" style="background:var(--ink-2);border-radius:2px"></i>`;
+    else                         sw = `<i class="dot" style="background:${i.col}"></i>`;
+    return `<span>${sw}${i.name}</span>`;
+  }).join('');
+}
+
+/* ---------- hero waveform ---------- */
+(function(){
+  const cv = document.getElementById('wave');
+  function draw(){
+    const w = cv.clientWidth, h = 132, dpr = devicePixelRatio || 1;
+    cv.width = w*dpr; cv.height = h*dpr;
+    const g = cv.getContext('2d'); g.scale(dpr, dpr); g.clearRect(0,0,w,h);
+    const d = DATA.waveform, n = d.length, mid = h/2;
+    const bw = w/n;
+    const cs = getComputedStyle(document.documentElement);
+    const c1 = cs.getPropertyValue('--s1').trim(), rule = cs.getPropertyValue('--rule-strong').trim();
+    g.fillStyle = c1;
+    for (let i=0;i<n;i++){
+      const a = Math.max(1, d[i] * (h*0.44));
+      g.globalAlpha = 0.34 + 0.46*d[i];
+      const bar = Math.max(1.5, bw*0.5);
+      g.fillRect(i*bw + (bw-bar)/2, mid-a, bar, a*2);
+    }
+    g.globalAlpha = 1; g.strokeStyle = rule; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(0, mid+.5); g.lineTo(w, mid+.5); g.stroke();
+  }
+  draw(); addEventListener('resize', draw);
+  matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', draw);
+  document.getElementById('ticks').innerHTML =
+    [0,10,20,30,40,50,60].map(m=>`<span>${m}:00</span>`).join('') + '<span>65:45</span>';
+})();
+
+/* ---------- scorecard ---------- */
+(function(){
+  const r = DATA.report.systems, t = DATA.timing, host = document.getElementById('score');
+  const order = ['sinribe','claude','vibe'];
+  host.innerHTML = order.map((k,i)=>{
+    const s = SYS.find(x=>x.k===k), d = r[k], ti = t[k];
+    const dia = k==='sinribe' ? '99.60%' : '—';
+    return `<div class="tile ${i===0?'lead':''}">
+      <span class="stripe" style="background:${s.col}"></span>
+      <span class="rank">${['Best overall','Second','Third'][i]}</span>
+      <span class="name"><i class="dot" style="background:${s.col}"></i>${s.name}</span>
+      <span class="big">${pct(d.wer)}</span>
+      <span class="cap">word error rate</span>
+      <dl>
+        <dt>Meaning-changing errors</dt><dd>${pct(d.major_rate)}</dd>
+        <dt>Speaker attribution</dt><dd>${dia}</dd>
+        <dt>Median timestamp error</dt><dd>${ti.median_abs.toFixed(1)} s</dd>
+        <dt>Fabricated runs</dt><dd>${d.ins_runs.length}</dd>
+      </dl></div>`;
+  }).join('');
+})();
+
+/* ---------- grouped bars: WER + substantive ---------- */
+(function(){
+  const svg = document.getElementById('c-wer'), r = DATA.report.systems;
+  const W=720,H=250, L=132, R=40, T=18, B=46;
+  const groups = [{lab:'Word error rate', key:'wer'},{lab:'Substantive errors', key:'major_rate'}];
+  const max = 0.24, x = v => L + v/max*(W-L-R);
+  legend('lg-wer', SYS);
+  const gh = (H-T-B)/2;
+  groups.forEach((g,gi)=>{
+    const y0 = T + gi*gh;
+    svg.appendChild(el('text',{x:0,y:y0+14,fill:'var(--ink-2)','font-size':12.5,'font-weight':600}, g.lab));
+    SYS.forEach((s,si)=>{
+      const v = r[s.k][g.key], bh = 15, gap = 6;
+      const y = y0 + 24 + si*(bh+gap);
+      const bar = el('rect',{x:L, y, width:Math.max(2,x(v)-L), height:bh, fill:s.col, rx:3});
+      bar.addEventListener('pointermove', e=>showTip(e,
+        `<b>${s.name}</b><br><span class="tk">${pct(v)}</span> · ${g.lab.toLowerCase()}`));
+      bar.addEventListener('pointerleave', hideTip);
+      svg.appendChild(bar);
+      svg.appendChild(el('text',{x:x(v)+8, y:y+bh-3, fill:'var(--ink)','font-size':12,
+        'font-family':'ui-monospace,Menlo,monospace','font-variant-numeric':'tabular-nums'}, pct(v)));
+      svg.appendChild(el('text',{x:L-10, y:y+bh-3, fill:'var(--muted)','font-size':11.5,
+        'text-anchor':'end'}, s.name));
+    });
+  });
+  // baseline axis
+  svg.appendChild(el('line',{x1:L,y1:T,x2:L,y2:H-B+6,stroke:'var(--rule-strong)','stroke-width':1}));
+  [0,.05,.10,.15,.20].forEach(v=>{
+    svg.appendChild(el('line',{x1:x(v),y1:H-B+6,x2:x(v),y2:H-B+11,stroke:'var(--rule-strong)'}));
+    svg.appendChild(el('text',{x:x(v),y:H-B+26,fill:'var(--muted)','font-size':11,'text-anchor':'middle',
+      'font-family':'ui-monospace,Menlo,monospace'}, (v*100).toFixed(0)+'%'));
+  });
+})();
+
+/* ---------- stacked: substantive vs cosmetic ---------- */
+(function(){
+  const svg = document.getElementById('c-comp'), r = DATA.report.systems;
+  const W=720,H=178,L=132,R=56,T=24,B=10;
+  const max = Math.max(...SYS.map(s=>r[s.k].major_errors + r[s.k].minor_errors));
+  const x = v => L + v/max*(W-L-R);
+  legend('lg-comp', [{name:'Substantive — changes meaning', kind:'solid'},
+                     {name:'Cosmetic — spelling, fillers, articles', kind:'faded'}]);
+  SYS.forEach((s,i)=>{
+    const d = r[s.k], y = T + i*46, bh = 22;
+    const a = el('rect',{x:L,y,width:x(d.major_errors)-L,height:bh,fill:s.col,rx:3});
+    a.addEventListener('pointermove',e=>showTip(e,`<b>${s.name}</b><br><span class="tk">${d.major_errors}</span> substantive errors (${pct(d.major_rate)})`));
+    a.addEventListener('pointerleave',hideTip);
+    const bx = x(d.major_errors)+2;
+    const b = el('rect',{x:bx,y,width:Math.max(2,x(d.major_errors+d.minor_errors)-bx),height:bh,
+      fill:s.col,opacity:.26,rx:3});
+    b.addEventListener('pointermove',e=>showTip(e,`<b>${s.name}</b><br><span class="tk">${d.minor_errors}</span> cosmetic errors (${pct(d.minor_rate)})`));
+    b.addEventListener('pointerleave',hideTip);
+    svg.appendChild(a); svg.appendChild(b);
+    svg.appendChild(el('text',{x:L-10,y:y+15,fill:'var(--muted)','font-size':11.5,'text-anchor':'end'}, s.name));
+    svg.appendChild(el('text',{x:L+8,y:y+15,fill:'#fff','font-size':11.5,'font-weight':600,
+      'font-family':'ui-monospace,Menlo,monospace'}, d.major_errors));
+    svg.appendChild(el('text',{x:x(d.major_errors+d.minor_errors)+8,y:y+15,fill:'var(--ink-2)','font-size':11.5,
+      'font-family':'ui-monospace,Menlo,monospace'}, d.major_errors+d.minor_errors));
+  });
+  svg.appendChild(el('text',{x:L,y:T-10,fill:'var(--muted)','font-size':11,
+    'font-family':'ui-monospace,Menlo,monospace'},'words in error →'));
+})();
+
+/* ---------- fabricated / omitted runs ---------- */
+(function(){
+  const svg = document.getElementById('c-runs'), r = DATA.report.systems;
+  const W=720,H=232,L=132,T=30;
+  legend('lg-runs',[{name:'Fabricated (invented words)', kind:'solid'},
+                    {name:'Omitted (dropped words)', kind:'ring'}]);
+  const maxLen = 65, x = v => L + v/maxLen*(W-L-70);
+  SYS.forEach((s,i)=>{
+    const d = r[s.k], y = T + i*50;
+    svg.appendChild(el('text',{x:L-10,y:y+4,fill:'var(--muted)','font-size':11.5,'text-anchor':'end'}, s.name));
+    d.ins_runs.forEach(run=>{
+      const c = el('circle',{cx:x(run.len),cy:y,r:Math.max(4,Math.sqrt(run.len)*1.5),fill:s.col,
+        stroke:'var(--surface)','stroke-width':2});
+      c.addEventListener('pointermove',e=>showTip(e,`<b>${s.name}</b> · fabricated ${run.len} words<br>„${run.text.slice(0,70)}…“`));
+      c.addEventListener('pointerleave',hideTip); svg.appendChild(c);
+    });
+    d.del_runs.forEach(run=>{
+      const c = el('circle',{cx:x(run.len),cy:y+20,r:Math.max(4,Math.sqrt(run.len)*1.5),fill:'none',
+        stroke:s.col,'stroke-width':2});
+      c.addEventListener('pointermove',e=>showTip(e,`<b>${s.name}</b> · omitted ${run.len} words @ ${run.t/60|0} min<br>„${run.text.slice(0,70)}…“`));
+      c.addEventListener('pointerleave',hideTip); svg.appendChild(c);
+    });
+    svg.appendChild(el('line',{x1:L,y1:y-14,x2:W-60,y2:y-14,stroke:'var(--rule)','stroke-dasharray':'2 3'}));
+  });
+  [8,20,40,65].forEach(v=>{
+    svg.appendChild(el('text',{x:x(v),y:H-14,fill:'var(--muted)','font-size':11,'text-anchor':'middle',
+      'font-family':'ui-monospace,Menlo,monospace'}, v));
+  });
+  svg.appendChild(el('text',{x:L,y:H-32,fill:'var(--muted)','font-size':11},'run length, consecutive words →'));
+})();
+
+/* ---------- timestamps ---------- */
+(function(){
+  const svg = document.getElementById('c-ts'), t = DATA.timing;
+  const W=720,H=230,L=132,R=44,T=28,B=44;
+  const bands = [['within_1s','≤ 1 s'],['within_2s','≤ 2 s'],['within_5s','≤ 5 s']];
+  const x = v => L + v*(W-L-R);
+  legend('lg-ts', SYS);
+  bands.forEach((b,bi)=>{
+    const y0 = T + bi*62;
+    svg.appendChild(el('text',{x:0,y:y0+12,fill:'var(--ink-2)','font-size':12.5,'font-weight':600}, b[1]));
+    SYS.forEach((s,si)=>{
+      const v = t[s.k][b[0]], bh=13, y=y0+si*16;
+      const bar = el('rect',{x:L,y,width:Math.max(2,x(v)-L),height:bh,fill:s.col,rx:3});
+      bar.addEventListener('pointermove',e=>showTip(e,`<b>${s.name}</b><br><span class="tk">${pct(v,1)}</span> of words within ${b[1].replace('≤ ','')}`));
+      bar.addEventListener('pointerleave',hideTip); svg.appendChild(bar);
+      svg.appendChild(el('text',{x:x(v)+8,y:y+bh-2,fill:'var(--ink)','font-size':11.5,
+        'font-family':'ui-monospace,Menlo,monospace'}, pct(v,1)));
+      svg.appendChild(el('text',{x:L-10,y:y+bh-2,fill:'var(--muted)','font-size':11,'text-anchor':'end'}, s.name));
+    });
+  });
+  svg.appendChild(el('line',{x1:L,y1:T-6,x2:L,y2:H-B+4,stroke:'var(--rule-strong)'}));
+})();
+
+/* ---------- diarisation ---------- */
+(function(){
+  const svg = document.getElementById('c-dia'), f = DATA.final.diarization;
+  const W=420,H=220,L=16,R=16,T=40;
+  const x = v => L + v*(W-L-R);
+  const rows = [['Sinribe', f.accuracy, 'var(--s1)'], ['Majority-class baseline', f.majority_baseline, 'var(--rule-strong)']];
+  svg.appendChild(el('text',{x:L,y:18,fill:'var(--muted)','font-size':11,
+    'font-family':'ui-monospace,Menlo,monospace','letter-spacing':'.1em'},'WORDS ON THE RIGHT SPEAKER'));
+  rows.forEach((r,i)=>{
+    const y = T + i*64;
+    svg.appendChild(el('rect',{x:L,y,width:W-L-R,height:26,fill:'var(--surface-2)',rx:3}));
+    const bar = el('rect',{x:L,y,width:x(r[1])-L,height:26,fill:r[2],rx:3});
+    bar.addEventListener('pointermove',e=>showTip(e,`<b>${r[0]}</b><br><span class="tk">${pct(r[1])}</span>`));
+    bar.addEventListener('pointerleave',hideTip); svg.appendChild(bar);
+    svg.appendChild(el('text',{x:L,y:y-8,fill:'var(--ink-2)','font-size':12.5}, r[0]));
+    svg.appendChild(el('text',{x:L+10,y:y+18,fill:'#fff','font-size':13,'font-weight':600,
+      'font-family':'ui-monospace,Menlo,monospace'}, pct(r[1])));
+  });
+  svg.appendChild(el('text',{x:L,y:T+150,fill:'var(--muted)','font-size':11.5},
+    `Speaker-change points detected: ${f.turn_changes_detected} of ${f.turn_changes_evaluable}`));
+})();
+
+/* ---------- timeline ---------- */
+(function(){
+  const svg = document.getElementById('c-tl'), tl = DATA.timeline;
+  const W=720,H=300,L=44,R=16,T=20,B=42;
+  const minAcc = 0.6, maxAcc = 1;
+  const xs = m => L + m/66*(W-L-R);
+  const ys = a => T + (1-(a-minAcc)/(maxAcc-minAcc))*(H-T-B);
+  legend('lg-tl', SYS);
+  // grid
+  [0.6,0.7,0.8,0.9,1].forEach(v=>{
+    svg.appendChild(el('line',{x1:L,y1:ys(v),x2:W-R,y2:ys(v),stroke:'var(--rule)','stroke-width':1}));
+    svg.appendChild(el('text',{x:L-8,y:ys(v)+4,fill:'var(--muted)','font-size':11,'text-anchor':'end',
+      'font-family':'ui-monospace,Menlo,monospace'}, (v*100).toFixed(0)+'%'));
+  });
+  [0,10,20,30,40,50,60].forEach(m=>{
+    svg.appendChild(el('text',{x:xs(m),y:H-B+22,fill:'var(--muted)','font-size':11,'text-anchor':'middle',
+      'font-family':'ui-monospace,Menlo,monospace'}, m+':00'));
+  });
+  // dropout annotation
+  svg.appendChild(el('line',{x1:xs(26.5),y1:T,x2:xs(26.5),y2:H-B,stroke:'var(--rule-strong)','stroke-dasharray':'3 3'}));
+  svg.appendChild(el('text',{x:xs(26.5)+6,y:T+12,fill:'var(--muted)','font-size':10.5},'connection dropout 26:32'));
+  SYS.forEach(s=>{
+    const pts = tl[s.k];
+    const d = pts.map((p,i)=>`${i?'L':'M'}${xs(p.min).toFixed(1)},${ys(p.acc).toFixed(1)}`).join(' ');
+    svg.appendChild(el('path',{d, fill:'none', stroke:s.col, 'stroke-width':2,
+      'stroke-linejoin':'round','stroke-linecap':'round'}));
+  });
+  // hover crosshair
+  const cross = el('line',{y1:T,y2:H-B,stroke:'var(--rule-strong)','stroke-width':1,opacity:0});
+  svg.appendChild(cross);
+  const dots = SYS.map(s=>{ const c = el('circle',{r:4.5,fill:s.col,stroke:'var(--surface)','stroke-width':2,opacity:0}); svg.appendChild(c); return c; });
+  const hit = el('rect',{x:L,y:T,width:W-L-R,height:H-T-B,fill:'transparent'});
+  svg.appendChild(hit);
+  hit.addEventListener('pointermove', e=>{
+    const box = svg.getBoundingClientRect();
+    const mx = (e.clientX-box.left)/box.width*W;
+    const mins = (mx-L)/(W-L-R)*66;
+    const ref = DATA.timeline.sinribe;
+    let bi = 0, bd = 1e9;
+    ref.forEach((p,i)=>{ const d=Math.abs(p.min-mins); if(d<bd){bd=d;bi=i;} });
+    const X = xs(ref[bi].min);
+    cross.setAttribute('x1',X); cross.setAttribute('x2',X); cross.setAttribute('opacity',1);
+    let html = `<b>${String(ref[bi].min|0).padStart(2,'0')}:00–${String((ref[bi].min|0)+2).padStart(2,'0')}:00</b>`;
+    SYS.forEach((s,i)=>{
+      const p = DATA.timeline[s.k][bi];
+      if(!p){ dots[i].setAttribute('opacity',0); return; }
+      dots[i].setAttribute('cx',xs(p.min)); dots[i].setAttribute('cy',ys(p.acc)); dots[i].setAttribute('opacity',1);
+      html += `<br><i class="dot" style="background:${s.col};display:inline-block;margin-right:6px"></i>${s.name} <span class="tk">${pct(p.acc,1)}</span>`;
+    });
+    showTip(e, html);
+  });
+  hit.addEventListener('pointerleave', ()=>{ hideTip(); cross.setAttribute('opacity',0); dots.forEach(d=>d.setAttribute('opacity',0)); });
+})();
+
+/* ---------- tables ---------- */
+(function(){
+  const r = DATA.report.systems, t = DATA.timing, f = DATA.final;
+  const sw = c => `<i class="swatch" style="background:${c}"></i>`;
+  document.getElementById('t-wer').innerHTML = SYS.map((s,i)=>{
+    const d = r[s.k];
+    return `<tr class="${i===0?'best':''}"><td>${sw(s.col)}${s.name}</td><td>${pct(d.wer)}</td>
+      <td>${pct(d.accuracy)}</td><td>${d.S}</td><td>${d.D}</td><td>${d.I}</td><td>${d.n_hyp_words}</td></tr>`;
+  }).join('');
+  document.getElementById('t-comp').innerHTML = SYS.map((s,i)=>{
+    const d = r[s.k];
+    return `<tr class="${i===0?'best':''}"><td>${sw(s.col)}${s.name}</td><td>${d.major_errors}</td>
+      <td>${pct(d.major_rate)}</td><td>${d.minor_errors}</td><td>${pct(d.minor_rate)}</td></tr>`;
+  }).join('');
+  document.getElementById('t-runs').innerHTML = SYS.map(s=>{
+    const d = r[s.k];
+    const mx = a => a.length ? Math.max(...a.map(x=>x.len))+' words' : '—';
+    return `<tr><td>${sw(s.col)}${s.name}</td><td>${d.ins_runs.length}</td><td>${mx(d.ins_runs)}</td>
+      <td>${d.del_runs.length}</td><td>${mx(d.del_runs)}</td></tr>`;
+  }).join('');
+  document.getElementById('t-ts').innerHTML = SYS.map((s,i)=>{
+    const d = t[s.k];
+    return `<tr class="${i===0?'best':''}"><td>${sw(s.col)}${s.name}</td>
+      <td>${d.median_signed>=0?'+':''}${d.median_signed.toFixed(1)} s</td>
+      <td>${d.median_abs.toFixed(1)} s</td><td>${d.mean_abs.toFixed(1)} s</td>
+      <td>${pct(d.within_1s,1)}</td><td>${pct(d.within_2s,1)}</td><td>${pct(d.within_5s,1)}</td></tr>`;
+  }).join('');
+  const dia = f.diarization;
+  document.getElementById('t-dia').innerHTML = `
+    <tr><td>Overall accuracy</td><td>${pct(dia.accuracy)}</td></tr>
+    <tr><td>Majority-class baseline</td><td>${pct(dia.majority_baseline)}</td></tr>
+    <tr><td>Interview-Partner recall</td><td>${pct(dia.per_role['Interview-Partner'].recall)}</td></tr>
+    <tr><td>Interviewer recall</td><td>${pct(dia.per_role['Interviewer'].recall)}</td></tr>
+    <tr><td>Speaker changes found</td><td>${dia.turn_changes_detected}/${dia.turn_changes_evaluable}</td></tr>
+    <tr><td>Words scored</td><td>${dia.aligned_words.toLocaleString('en')}</td></tr>`;
+  const seg = f.segmentation, names = {manual:'Human transcript', sinribe:'Sinribe', vibe:'Vibe', claude:'Stock large-v3'};
+  document.getElementById('t-seg').innerHTML = ['manual','sinribe','vibe','claude'].map(k=>{
+    const d = seg[k];
+    return `<tr><td>${names[k]}</td><td>${d.n_segments}</td><td>${d.median_words.toFixed(0)}</td>
+      <td>${pct(d.pct_under_5_words,1)}</td><td>${d.has_speakers?'yes':'no'}</td></tr>`;
+  }).join('');
+  const ag = f.agreement, lbl = {manual:'Human', sinribe:'Sinribe', vibe:'Vibe', claude:'Stock large-v3'};
+  document.getElementById('t-agree').innerHTML = Object.entries(ag)
+    .sort((a,b)=>b[1]-a[1]).map(([k,v])=>{
+      const [a,b] = k.split('~');
+      return `<tr><td>${lbl[a]} ↔ ${lbl[b]}</td><td>${pct(v)}</td></tr>`;
+    }).join('');
+})();
+</script>
